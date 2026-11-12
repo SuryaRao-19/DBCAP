@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+  <meta name="description" content="{% block meta_description %}Tata Power EZ Charge — EV Network Management Demo (EV ChargeNet): Independent academic EV charging station finder, Delhi NCR interactive map, demo slot reservations, and Razorpay Test Mode billing.{% endblock %}">
+  <meta property="og:title" content="{% block og_title %}Tata Power EZ Charge — EV Network Management Demo{% endblock %}">
+  <meta property="og:description" content="Explore verified Tata Power EZ Charge Delhi NCR hubs, inspect AC/DC connectors, and test simulated slot booking and Razorpay Test Mode checkout.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="{{ url_for('static', filename='images/hero-ev-charging.jpg') }}">
+  <title>{% block title %}Tata Power EZ Charge — EV Network Management Demo{% endblock %}</title>
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='images/logo.svg') }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  {% block extra_head %}{% endblock %}
+</head>
+<body class="{% if session.get('user_id') and session.get('role') == 'ADMIN' %}has-admin-sidebar{% endif %}">
+
+{% if session.get('user_id') and session.get('role') == 'ADMIN' %}
+  <div class="sidebar-backdrop" onclick="closeMobileSidebar()"></div>
+  <div class="admin-shell">
+    <!-- Collapsible Admin Sidebar -->
+    <aside class="admin-sidebar" id="adminSidebar" aria-label="Admin Navigation">
+      <div class="admin-sidebar-brand">
+        <a href="{{ url_for('public.landing') }}" class="nav-brand">
+          <img src="{{ url_for('static', filename='images/logo.svg') }}" alt="Tata Power EZ Charge Demo Logo" width="34" height="34" style="border-radius:8px; flex-shrink:0;">
+          <span class="nav-brand-text">
+            <span class="nav-brand-title">EZ Charge Demo</span>
+            <span class="nav-brand-sub">EV ChargeNet Admin</span>
+          </span>
+        </a>
+      </div>
+
+      <nav class="admin-sidebar-nav">
+        <div>
+          <div class="sidebar-group-label">Operations</div>
+          <a href="{{ url_for('admin.dashboard') }}" class="sidebar-link {% if request.endpoint == 'admin.dashboard' %}active{% endif %}">
+            <span class="sidebar-icon">📊</span><span class="sidebar-label">Dashboard</span>
+          </a>
+          <a href="{{ url_for('admin.stations') }}" class="sidebar-link {% if request.endpoint == 'admin.stations' %}active{% endif %}">
+            <span class="sidebar-icon">📍</span><span class="sidebar-label">Stations</span>
+          </a>
+          <a href="{{ url_for('admin.points') }}" class="sidebar-link {% if request.endpoint == 'admin.points' %}active{% endif %}">
+            <span class="sidebar-icon">⚡</span><span class="sidebar-label">Dispensers</span>
+          </a>
+          <a href="{{ url_for('admin.bookings') }}" class="sidebar-link {% if request.endpoint == 'admin.bookings' %}active{% endif %}">
+            <span class="sidebar-icon">📅</span><span class="sidebar-label">Bookings</span>
+          </a>
+          <a href="{{ url_for('admin.sessions') }}" class="sidebar-link {% if request.endpoint == 'admin.sessions' %}active{% endif %}">
+            <span class="sidebar-icon">🔋</span><span class="sidebar-label">Sessions</span>
+          </a>
+          <a href="{{ url_for('admin.payments') }}" class="sidebar-link {% if request.endpoint == 'admin.payments' %}active{% endif %}">
+            <span class="sidebar-icon">💳</span><span class="sidebar-label">Payments</span>
+          </a>
+          <a href="{{ url_for('admin.users') }}" class="sidebar-link {% if request.endpoint == 'admin.users' %}active{% endif %}">
+            <span class="sidebar-icon">👥</span><span class="sidebar-label">Users</span>
+          </a>
+          <a href="{{ url_for('admin.reports') }}" class="sidebar-link {% if request.endpoint == 'admin.reports' %}active{% endif %}">
+            <span class="sidebar-icon">📈</span><span class="sidebar-label">Reports</span>
+          </a>
+        </div>
+
+        <div>
+          <div class="sidebar-group-label">Administration</div>
+          <a href="{{ url_for('admin.system_health') }}" class="sidebar-link {% if request.endpoint == 'admin.system_health' %}active{% endif %}">
+            <span class="sidebar-icon">🛡️</span><span class="sidebar-label">System Health</span>
+          </a>
+          <a href="{{ url_for('admin.enquiries') }}" class="sidebar-link {% if request.endpoint == 'admin.enquiries' %}active{% endif %}">
+            <span class="sidebar-icon">✉️</span><span class="sidebar-label">Enquiries</span>
+          </a>
+          <a href="{{ url_for('admin.admin_data_sources') }}" class="sidebar-link {% if request.endpoint == 'admin.admin_data_sources' %}active{% endif %}">
+            <span class="sidebar-icon">📚</span><span class="sidebar-label">Data Sources</span>
+          </a>
+          <a href="{{ url_for('admin.audit_logs') }}" class="sidebar-link {% if request.endpoint == 'admin.audit_logs' %}active{% endif %}">
+            <span class="sidebar-icon">🧾</span><span class="sidebar-label">Audit Logs</span>
+          </a>
+        </div>
+      </nav>
+    </aside>
+
+    <!-- Admin Right Workspace -->
+    <div class="admin-workspace">
+      <header class="admin-topbar">
+        <div style="display:flex; align-items:center; gap:0.85rem; min-width:0;">
+          <button type="button" class="sidebar-toggle-btn" onclick="toggleAdminSidebar()" aria-label="Toggle Sidebar">&#9776;</button>
+          <div class="hide-xs" style="min-width:0;">
+            <div style="font-size:0.9rem; font-weight:700; color:#fff; white-space:nowrap;">Tata Power EZ Charge &mdash; EV Network Management Demo</div>
+            <div style="font-size:0.72rem; color:var(--text-dim); white-space:nowrap;">Independent Academic Operations Console</div>
+          </div>
+        </div>
+
+        <div class="nav-actions">
+          <div class="profile-menu-wrap">
+            <button type="button" class="user-badge" onclick="toggleProfileMenu(this)" aria-label="Open Account Menu">
+              <span>{{ session.get('full_name') or 'System Admin' }}</span>
+              <span class="role-pill admin">{{ session.get('role') or 'ADMIN' }}</span>
+              <span style="font-size:0.68rem; color:var(--text-dim);">&#9662;</span>
+            </button>
+            <div class="profile-dropdown">
+              <a href="{{ url_for('public.profile') }}">Account Settings</a>
+              <a href="{{ url_for('public.browse_stations') }}">Public Station Map</a>
+              <a href="{{ url_for('public.data_sources') }}">Data Source Register</a>
+              <a href="{{ url_for('public.landing') }}">Public Homepage</a>
+            </div>
+          </div>
+          <a href="{{ url_for('auth.logout') }}" class="btn btn-outline-danger btn-sm">Log Out</a>
+        </div>
+      </header>
+
+      <main class="main-content">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              <div class="alert alert-{{ category }}">
+                <span>{{ message }}</span>
+                <button type="button" onclick="this.parentElement.remove()" style="background:transparent;border:none;color:inherit;cursor:pointer;font-size:1.1rem;">&times;</button>
+              </div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+
+{% else %}
+  <!-- Public & EV Owner Top Navigation Bar -->
+  <nav class="navbar">
+    <div class="nav-container">
+      <a href="{{ url_for('public.landing') }}" class="nav-brand">
+        <img src="{{ url_for('static', filename='images/logo.svg') }}" alt="EV ChargeNet Logo" width="34" height="34" style="border-radius:8px; flex-shrink:0;">
+        <span class="nav-brand-text">
+          <span class="nav-brand-title">Tata Power EZ Charge</span>
+          <span class="nav-brand-sub">EV ChargeNet Demo</span>
+        </span>
+      </a>
+
+      <button type="button" class="mobile-toggle" onclick="document.querySelector('.navbar .nav-menu').classList.toggle('open')" aria-label="Toggle Navigation">&#9776;</button>
+
+      {% if session.get('user_id') %}
+        <ul class="nav-menu">
+          <li><a href="{{ url_for('owner.dashboard') }}" class="nav-link {% if request.endpoint == 'owner.dashboard' %}active{% endif %}">Dashboard</a></li>
+          <li><a href="{{ url_for('public.browse_stations') }}" class="nav-link {% if request.endpoint == 'public.browse_stations' %}active{% endif %}">Find Stations</a></li>
+          <li><a href="{{ url_for('owner.vehicles') }}" class="nav-link {% if request.endpoint == 'owner.vehicles' %}active{% endif %}">My Vehicles</a></li>
+          <li><a href="{{ url_for('owner.bookings') }}" class="nav-link {% if request.endpoint == 'owner.bookings' %}active{% endif %}">Reservations</a></li>
+          <li><a href="{{ url_for('owner.charging') }}" class="nav-link {% if request.endpoint == 'owner.charging' %}active{% endif %}">Live Charging</a></li>
+          <li><a href="{{ url_for('owner.history') }}" class="nav-link {% if request.endpoint == 'owner.history' %}active{% endif %}">History &amp; Receipts</a></li>
+        </ul>
+
+        <div class="nav-actions">
+          <div class="profile-menu-wrap">
+            <button type="button" class="user-badge" onclick="toggleProfileMenu(this)" aria-label="Open Account Menu">
+              <span class="hide-xs">{{ session.get('full_name') or 'EV Driver' }}</span>
+              <span class="role-pill owner">{{ session.get('role') or 'OWNER' }}</span>
+              <span style="font-size:0.68rem; color:var(--text-dim);">&#9662;</span>
+            </button>
+            <div class="profile-dropdown">
+              <a href="{{ url_for('public.profile') }}">Account Settings</a>
+              <a href="{{ url_for('public.about') }}">About Network</a>
+              <a href="{{ url_for('public.data_sources') }}">Data Sources</a>
+              <a href="{{ url_for('public.contact') }}">Contact Support</a>
+            </div>
+          </div>
+          <a href="{{ url_for('auth.logout') }}" class="btn btn-outline-danger btn-sm">Log Out</a>
+        </div>
+      {% else %}
+        <ul class="nav-menu">
+          <li><a href="{{ url_for('public.browse_stations') }}" class="nav-link {% if request.endpoint == 'public.browse_stations' %}active{% endif %}">Find Stations</a></li>
+          <li><a href="{{ url_for('public.about') }}" class="nav-link {% if request.endpoint == 'public.about' %}active{% endif %}">About Us</a></li>
+          <li><a href="{{ url_for('public.data_sources') }}" class="nav-link {% if request.endpoint == 'public.data_sources' %}active{% endif %}">Data Sources</a></li>
+          <li><a href="{{ url_for('public.contact') }}" class="nav-link {% if request.endpoint == 'public.contact' %}active{% endif %}">Contact Us</a></li>
+        </ul>
+        <div class="nav-actions">
+          <a href="{{ url_for('auth.login') }}" class="btn btn-secondary btn-sm">Log In</a>
+          <a href="{{ url_for('auth.register') }}" class="btn btn-primary btn-sm">Register</a>
+        </div>
+      {% endif %}
+    </div>
+  </nav>
+
+  <main class="main-content">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }}">
+            <span>{{ message }}</span>
+            <button type="button" onclick="this.parentElement.remove()" style="background:transparent;border:none;color:inherit;cursor:pointer;font-size:1.1rem;">&times;</button>
+          </div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+{% endif %}
+
+    {% block content %}{% endblock %}
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div style="max-width: 1360px; margin: 0 auto; display: flex; flex-direction: column; gap: 1rem;">
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+        <div>
+          <strong>Tata Power EZ Charge &mdash; EV Network Management Demo</strong> <span style="color:var(--accent-cyan);">(EV ChargeNet)</span>
+          <div style="font-size: 0.78rem; color: var(--text-dim); margin-top: 0.25rem;">
+            Independent academic demonstration using publicly available Tata Power EZ Charge reference information. Not an official Tata Power application.
+          </div>
+        </div>
+        <div style="display: flex; gap: 1rem; flex-wrap: wrap; font-size: 0.85rem; align-items:center;">
+          <a href="{{ url_for('public.about') }}">About Us</a>
+          <a href="{{ url_for('public.data_sources') }}">Data Sources</a>
+          <a href="{{ url_for('public.contact') }}">Contact Support</a>
+          <a href="{{ platform_operator.play_store_url if platform_operator and platform_operator.play_store_url else 'https://play.google.com/store/apps/details?id=com.tatapower.ezcharge' }}" target="_blank" rel="noopener noreferrer" aria-label="Tata Power EZ Charge on Google Play">
+            Official EZ Charge App (Play Store) &nearr;
+          </a>
+        </div>
+      </div>
+
+      {% if social_links %}
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--border-color);">
+        <span style="font-size: 0.75rem; color: var(--text-dim);">
+          Official Tata Power Channels (Verified Reference):
+          {% if platform_operator %} &bull; Helpline: {{ platform_operator.support_phone }}{% endif %}
+          &bull; <a href="{{ platform_operator.linktree_url if platform_operator and platform_operator.linktree_url else 'https://linktr.ee/Tata_Power_EZ_Charge' }}" target="_blank" rel="noopener noreferrer">Official EZ Charge Linktree &nearr;</a>
+        </span>
+        <div class="social-bar">
+          {% for soc in social_links %}
+            <a href="{{ soc.url }}" target="_blank" rel="noopener noreferrer" class="social-pill" aria-label="Official Tata Power {{ soc.display_label }}">
+              {{ soc.display_label }} &nearr;
+            </a>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  </footer>
+
+{% if session.get('user_id') and session.get('role') == 'ADMIN' %}
+    </div> <!-- /.admin-workspace -->
+  </div> <!-- /.admin-shell -->
+{% endif %}
+
+  <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+  {% block extra_scripts %}{% endblock %}
+</body>
+</html>

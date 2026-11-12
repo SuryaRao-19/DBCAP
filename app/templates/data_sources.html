@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Data Source Register — EV ChargeNet{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div class="page-header-title">
+    <h1>Data Source Register &amp; Transparency Log</h1>
+    <p class="page-subtitle">Full verification audit showing which displayed facts are VERIFIED, ESTIMATED, DEMO, or UNAVAILABLE.</p>
+  </div>
+  <a href="{{ url_for('public.about') }}" class="btn btn-secondary btn-sm">&larr; Back to About Us</a>
+</div>
+
+<div class="table-container">
+  <table>
+    <thead>
+      <tr>
+        <th>Data Item</th>
+        <th>Source Reference</th>
+        <th>Source URL</th>
+        <th>Verification Date</th>
+        <th>Data Status</th>
+        <th>Last Updated</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for src in sources %}
+        <tr>
+          <td>
+            <strong>{{ src.data_item }}</strong>
+            {% if src.notes %}
+              <div class="text-muted" style="font-size:0.78rem; margin-top:0.2rem;">{{ src.notes }}</div>
+            {% endif %}
+          </td>
+          <td>{{ src.source_name }}</td>
+          <td>
+            {% if src.source_url %}
+              <a href="{{ src.source_url }}" target="_blank" rel="noopener noreferrer" style="font-size:0.82rem;">Official Source &nearr;</a>
+            {% else %}
+              <span class="text-dim" style="font-size:0.82rem;">Internal Sandbox / N/A</span>
+            {% endif %}
+          </td>
+          <td style="white-space:nowrap; font-size:0.85rem;">{{ src.verification_date }}</td>
+          <td><span class="integrity-pill integrity-{{ src.data_status.lower() }}">{{ src.data_status }}</span></td>
+          <td style="white-space:nowrap; font-size:0.82rem; color:var(--text-muted);">{{ src.last_updated }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" style="text-align:center;color:var(--text-dim);">No data sources registered yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+

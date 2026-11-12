@@ -1,0 +1,264 @@
+{% extends "base.html" %}
+{% block title %}Admin Dashboard - Tata Power EZ Charge Demo{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div class="page-header-title">
+    <h1>Station Network Operations</h1>
+    <div class="page-subtitle">Real MySQL database analytics, simulated operational ledger, and verification governance</div>
+  </div>
+  <div style="display: flex; gap: 0.65rem; flex-wrap: wrap;">
+    <a href="{{ url_for('admin.stations') }}" class="btn btn-secondary btn-sm">Verify / Import Stations</a>
+    <a href="{{ url_for('admin.admin_data_sources') }}" class="btn btn-secondary btn-sm">Data Sources</a>
+    <a href="{{ url_for('admin.enquiries') }}" class="btn btn-secondary btn-sm">Enquiries</a>
+    <a href="{{ url_for('admin.points') }}" class="btn btn-primary btn-sm">+ Add Dispenser</a>
+  </div>
+</div>
+
+<!-- Primary KPIs Grid -->
+<div class="grid-cols-4">
+  <div class="card stat-card">
+    <div class="stat-label">Total Stations <span class="integrity-pill integrity-verified">DB</span></div>
+    <div class="stat-value">{{ metrics.total_stations }}</div>
+    <div class="stat-subtext">{{ metrics.active_stations }} active operational hubs</div>
+  </div>
+
+  <div class="card stat-card cyan">
+    <div class="stat-label">Charging Dispensers <span class="integrity-pill integrity-demo">DEMO</span></div>
+    <div class="stat-value">{{ metrics.total_points }}</div>
+    <div class="stat-subtext">
+      <span style="color:var(--accent-emerald);">{{ metrics.available_points }} Available</span> &bull;
+      <span style="color:var(--accent-amber);">{{ metrics.occupied_points }} Occupied</span>
+    </div>
+  </div>
+
+  <div class="card stat-card amber">
+    <div class="stat-label">Energy Dispensed <span class="integrity-pill integrity-demo">DEMO</span></div>
+    <div class="stat-value">{{ "%.1f"|format(metrics.total_energy_kwh) }} <span style="font-size:1rem;color:var(--text-muted);">kWh</span></div>
+    <div class="stat-subtext">{{ metrics.completed_sessions }} completed sessions</div>
+  </div>
+
+  <div class="card stat-card indigo">
+    <div class="stat-label">Demo Ledger Revenue <span class="integrity-pill integrity-demo">TEST MODE</span></div>
+    <div class="stat-value">₹{{ "%.2f"|format(metrics.total_revenue) }}</div>
+    <div class="stat-subtext">Simulated &amp; Razorpay Test Mode ledger (no real funds)</div>
+  </div>
+</div>
+
+<!-- Secondary Stats Row -->
+<div class="grid-cols-3">
+  <div class="card" style="padding: 1.25rem;">
+    <div style="font-size: 0.8rem; color: var(--text-muted); font-weight: 700;">REGISTERED EV OWNERS</div>
+    <div style="font-size: 1.65rem; font-weight: 800; margin-top: 0.25rem;">{{ metrics.total_users }} Users</div>
+    <div style="font-size: 0.8rem; color: var(--text-dim); margin-top: 0.25rem;">{{ metrics.total_vehicles }} registered electric vehicles</div>
+  </div>
+
+  <div class="card" style="padding: 1.25rem;">
+    <div style="font-size: 0.8rem; color: var(--text-muted); font-weight: 700;">SLOT RESERVATIONS</div>
+    <div style="font-size: 1.65rem; font-weight: 800; margin-top: 0.25rem;">{{ metrics.total_bookings }} Bookings</div>
+    <div style="font-size: 0.8rem; color: var(--text-dim); margin-top: 0.25rem;">Trigger-validated overlap enforcement</div>
+  </div>
+
+  <div class="card" style="padding: 1.25rem;">
+    <div style="font-size: 0.8rem; color: var(--text-muted); font-weight: 700;">ACTIVE LIVE SESSIONS</div>
+    <div style="font-size: 1.65rem; font-weight: 800; color: var(--accent-emerald); margin-top: 0.25rem;">
+      <span class="pulse-circle"></span>{{ metrics.active_sessions }} Active
+    </div>
+    <div style="font-size: 0.8rem; color: var(--text-dim); margin-top: 0.25rem;">Simulated energy meter state</div>
+  </div>
+</div>
+
+<!-- Phase 11: Real Database Chart.js Visualizations -->
+<div class="grid-cols-2">
+  <div class="card chart-card">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <div>
+        <h3 style="margin:0;">Station Distribution by City</h3>
+        <span style="font-size:0.78rem; color:var(--text-dim);">Approved stations grouped from MySQL <code>Stations</code></span>
+      </div>
+      <span class="integrity-pill integrity-verified">LIVE DB</span>
+    </div>
+    <div class="chart-canvas-wrap"><canvas id="chartCityStations"></canvas></div>
+  </div>
+
+  <div class="card chart-card">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <div>
+        <h3 style="margin:0;">Monthly Booking Trends</h3>
+        <span style="font-size:0.78rem; color:var(--text-dim);">Reservation count over time from MySQL <code>Bookings</code></span>
+      </div>
+      <span class="integrity-pill integrity-demo">DEMO BOOKINGS</span>
+    </div>
+    <div class="chart-canvas-wrap"><canvas id="chartMonthlyBookings"></canvas></div>
+  </div>
+
+  <div class="card chart-card">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <div>
+        <h3 style="margin:0;">Charger Connector Mix</h3>
+        <span style="font-size:0.78rem; color:var(--text-dim);">Dispenser standards in <code>ChargingPoints</code></span>
+      </div>
+      <span class="integrity-pill integrity-demo">SIMULATED BAYS</span>
+    </div>
+    <div class="chart-canvas-wrap"><canvas id="chartConnectorMix"></canvas></div>
+  </div>
+
+  <div class="card chart-card">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <div>
+        <h3 style="margin:0;">Payment Ledger Outcomes</h3>
+        <span style="font-size:0.78rem; color:var(--text-dim);">Transactions in <code>Payments</code> (Razorpay Test / Demo Ledger)</span>
+      </div>
+      <span class="integrity-pill integrity-demo">TEST MODE</span>
+    </div>
+    <div class="chart-canvas-wrap"><canvas id="chartPaymentStatus"></canvas></div>
+  </div>
+</div>
+
+<!-- Live Activity Tables -->
+<div class="grid-cols-2">
+  <div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
+      <h3>Recent Reservations <span class="integrity-pill integrity-demo">DEMO</span></h3>
+      <a href="{{ url_for('admin.bookings') }}" class="btn btn-secondary btn-sm">View All</a>
+    </div>
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>EV Owner</th>
+            <th>Station &amp; Point</th>
+            <th>Start Time</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for b in recent_bookings %}
+            <tr>
+              <td>
+                <div style="font-weight: 600;">{{ b.user_name }}</div>
+                <div style="font-size: 0.75rem; color: var(--text-dim);">{{ b.registration_no }}</div>
+              </td>
+              <td>
+                <div>{{ b.station_name }}</div>
+                <div style="font-size: 0.75rem; color: var(--text-dim);">{{ b.point_code }} ({{ b.connector_type }})</div>
+              </td>
+              <td>{{ b.start_at.strftime('%d %b, %H:%M') if b.start_at else '' }}</td>
+              <td><span class="badge badge-{{ b.booking_status.lower() }}">{{ b.booking_status }}</span></td>
+            </tr>
+          {% else %}
+            <tr><td colspan="4" style="text-align:center;color:var(--text-dim);">No bookings recorded yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
+      <h3>Recent Sessions <span class="integrity-pill integrity-demo">DEMO</span></h3>
+      <a href="{{ url_for('admin.sessions') }}" class="btn btn-secondary btn-sm">View All</a>
+    </div>
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>User / Vehicle</th>
+            <th>Energy (kWh)</th>
+            <th>Total Cost</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in recent_sessions %}
+            <tr>
+              <td>
+                <div style="font-weight: 600;">{{ s.user_name }}</div>
+                <div style="font-size: 0.75rem; color: var(--text-dim);">{{ s.make }} {{ s.model }}</div>
+              </td>
+              <td style="font-weight: 600; color: var(--accent-emerald);">{{ "%.2f"|format(s.energy_kwh) }} kWh</td>
+              <td style="font-weight: 700;">₹{{ "%.2f"|format(s.total_cost) }}</td>
+              <td><span class="badge badge-{{ s.session_status.lower() }}">{{ s.session_status }}</span></td>
+            </tr>
+          {% else %}
+            <tr><td colspan="4" style="text-align:center;color:var(--text-dim);">No charging sessions recorded yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script id="adminChartsData" type="application/json">{{ charts|tojson }}</script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  if (typeof Chart === 'undefined') return;
+  const raw = document.getElementById('adminChartsData');
+  if (!raw) return;
+  const charts = JSON.parse(raw.textContent);
+
+  Chart.defaults.color = '#94A3B8';
+  Chart.defaults.borderColor = 'rgba(226, 232, 240, 0.1)';
+
+  new Chart(document.getElementById('chartCityStations'), {
+    type: 'bar',
+    data: {
+      labels: charts.stations_by_city.map(r => r.city),
+      datasets: [{
+        label: 'Charging Hubs',
+        data: charts.stations_by_city.map(r => r.count),
+        backgroundColor: '#00D4FF',
+        borderRadius: 6,
+      }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+  });
+
+  new Chart(document.getElementById('chartMonthlyBookings'), {
+    type: 'line',
+    data: {
+      labels: charts.monthly_bookings.map(r => r.month),
+      datasets: [{
+        label: 'Bookings',
+        data: charts.monthly_bookings.map(r => r.count),
+        borderColor: '#00C985',
+        backgroundColor: 'rgba(0, 201, 133, 0.16)',
+        fill: true,
+        tension: 0.3,
+      }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+  });
+
+  new Chart(document.getElementById('chartConnectorMix'), {
+    type: 'doughnut',
+    data: {
+      labels: charts.chargers_by_type.map(r => `${r.connector_type} (${r.total_kw} kW)`),
+      datasets: [{
+        data: charts.chargers_by_type.map(r => r.count),
+        backgroundColor: ['#00C985', '#00D4FF', '#6366F1', '#F59E0B'],
+        borderWidth: 0,
+      }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+  });
+
+  new Chart(document.getElementById('chartPaymentStatus'), {
+    type: 'bar',
+    data: {
+      labels: charts.payment_status_counts.map(r => r.payment_status),
+      datasets: [{
+        label: 'Transactions (Test / Demo)',
+        data: charts.payment_status_counts.map(r => r.count),
+        backgroundColor: ['#00C985', '#F59E0B', '#F43F5E', '#6366F1'],
+        borderRadius: 6,
+      }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+  });
+});
+</script>
+{% endblock %}

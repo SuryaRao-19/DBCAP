@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+
+{% block title %}Find EV Charging Stations & Interactive NCR Map — EV ChargeNet{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div class="page-header-title">
+    <h1>Find EV Charging Stations</h1>
+    <p class="page-subtitle">Real Delhi NCR charging locations paired with interactive map navigation and demo bay reservation controls.</p>
+  </div>
+  <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+    <button type="button" id="nearMeBtn" class="btn btn-secondary btn-sm">📍 Use My Location</button>
+    {% if session.get('role') == 'OWNER' %}
+      <a href="{{ url_for('owner.bookings') }}" class="btn btn-primary btn-sm">My Reservations</a>
+    {% endif %}
+  </div>
+</div>
+
+<!-- NCR Region Quick Filter Pills -->
+<div class="ncr-pills">
+  <a href="{{ url_for('public.browse_stations') }}" class="ncr-pill {% if not selected_city %}active{% endif %}">All NCR Hubs</a>
+  {% for c in ncr_cities %}
+    <a href="{{ url_for('public.browse_stations', city=c, connector=selected_connector, speed=selected_speed, q=search_query) }}"
+       class="ncr-pill {% if selected_city == c %}active{% endif %}">{{ c }}</a>
+  {% endfor %}
+</div>
+
+<!-- Interactive Map Panel (Driven by Filtered MySQL Results) -->
+<div class="card" style="margin-bottom:1.5rem; padding:1rem;">
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.65rem;">
+    <span id="directoryMapStatus" class="text-muted" style="font-size:0.8rem;">Initializing interactive map...</span>
+    <span class="integrity-pill integrity-unavailable">LIVE HARDWARE OCCUPANCY UNAVAILABLE — BOOKING SLOTS USE DEMO STATE</span>
+  </div>
+  <script id="filteredStationsData" type="application/json">
+    [
+      {% for s in stations %}
+      {
+        "station_id": {{ s.station_id }},
+        "station_name": {{ s.station_name|tojson }},
+        "address": {{ s.address|tojson }},
+        "city": {{ s.city|tojson }},
+        "postal_code": {{ (s.postal_code or '')|tojson }},
+        "latitude": {{ s.latitude if s.latitude is not none else 'null' }},
+        "longitude": {{ s.longitude if s.longitude is not none else 'null' }},
+        "operator_name": {{ (s.operator_name or 'Tata Power EZ Charge')|tojson }},
+        "connector_types": {{ (s.connector_types or 'CCS2')|tojson }},
+        "charger_capacity_kw": {{ (s.charger_capacity_kw or '')|tojson }},
+        "total_points": {{ s.total_points }},
+        "available_points": {{ s.available_points }},
+        "facilities": {{ s.facilities_list|tojson }},
+        "verification_status": {{ (s.verification_status or 'DEMO')|tojson }},
+        "maps_url": {{ (s.maps_url or '')|tojson }}
+      }{% if not loop.last %},{% endif %}
+      {% endfor %}
+    ]
+  </script>
+  <div id="directoryMap"
+       class="ev-map-container"
+       data-ev-map
+       data-maps-key="{{ google_maps_api_key }}"
+       data-stations-el="filteredStationsData"
+       data-status-target="directoryMapStatus"
+       data-near-btn="nearMeBtn"></div>
+</div>
+
+<!-- Multi-Filter Search Bar -->
+<div class="card search-filter-card" style="margin-bottom: 2rem;">
+  <form method="GET" action="{{ url_for('public.browse_stations') }}" class="filter-form-grid" style="grid-template-columns: 2fr 1fr 1fr 1fr auto;">
+    <div class="form-group" style="margin-bottom: 0;">
+      <label class="form-label" for="station_search_q">Search Location, Address or PIN</label>
+      <input type="text" id="station_search_q" name="q" class="form-control" placeholder="e.g., Airia Mall, Rohini, 201301..." value="{{ search_query }}">
+    </div>
+
+    <div class="form-group" style="margin-bottom: 0;">
+      <label class="form-label" for="station_city_filter">NCR City</label>
+      <select id="station_city_filter" name="city" class="form-control">
+        <option value="">All Cities</option>
+        {% for c in cities %}
+          <option value="{{ c }}" {% if selected_city == c %}selected{% endif %}>{{ c }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="form-group" style="margin-bottom: 0;">
+      <label class="form-label" for="station_conn_filter">Connector</label>
+      <select id="station_conn_filter" name="connector" class="form-control">
+        <option value="">All Connectors</option>
+        {% for conn in connectors %}
+          <option value="{{ conn }}" {% if selected_connector == conn %}selected{% endif %}>{{ conn }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="form-group" style="margin-bottom: 0;">
+      <label class="form-label" for="station_speed_filter">Charging Speed</label>
+      <select id="station_speed_filter" name="speed" class="form-control">
+        <option value="">Any Speed</option>
+        <option value="FAST" {% if selected_speed == 'FAST' %}selected{% endif %}>Ultra-Fast (50+ kW)</option>
+        <option value="RAPID" {% if selected_speed == 'RAPID' %}selected{% endif %}>Fast DC (22–49 kW)</option>
+        <option value="AC" {% if selected_speed == 'AC' %}selected{% endif %}>AC Slow (&lt; 22 kW)</option>
+      </select>
+    </div>
+
+    <div style="display: flex; gap: 0.5rem; align-items: flex-end;">
+      <button type="submit" class="btn btn-primary">Filter</button>
+      {% if search_query or selected_city or selected_connector or selected_speed %}
+        <a href="{{ url_for('public.browse_stations') }}" class="btn btn-secondary" title="Clear Filters">Reset</a>
+      {% endif %}
+    </div>
+  </form>
+</div>
+
+<!-- Stations Grid -->
+{% if stations %}
+  <div class="grid-cols-3">
+    {% for station in stations %}
+      <div class="card station-card">
+        <div class="station-card-top">
+          <span class="integrity-pill integrity-{{ station.verification_status.lower() }}">{{ station.verification_status }}</span>
+          <span class="station-city-badge">📍 {{ station.city }}{% if station.postal_code %} &bull; {{ station.postal_code }}{% endif %}</span>
+        </div>
+
+        <h3 style="margin-top: 0.5rem; font-size: 1.18rem;">{{ station.station_name }}</h3>
+        <div style="font-size:0.78rem; color:var(--accent-cyan); margin-top:0.15rem;">{{ station.operator_name }}</div>
+        <p class="text-muted" style="font-size: 0.85rem; margin-top: 0.25rem; min-height: 40px;">{{ station.address }}, {{ station.state }}</p>
+
+        <!-- Connector & Facility Pills -->
+        <div style="margin: 0.75rem 0; display: flex; gap: 0.35rem; flex-wrap: wrap;">
+          {% for point in station.dispensers %}
+            <span class="tech-tag" style="font-size: 0.72rem; padding: 0.2rem 0.5rem;">
+              {{ point.connector_type }} ({{ point.max_power_kw }}kW)
+            </span>
+          {% endfor %}
+          {% for fac in station.facilities_list[:3] %}
+            <span class="badge" style="background:rgba(255,255,255,0.06); color:var(--text-muted); font-size:0.68rem;">{{ fac }}</span>
+          {% endfor %}
+        </div>
+
+        <div class="station-meta-row" style="padding-top: 0.75rem; border-top: 1px solid var(--border-color);">
+          <div>
+            <span class="meta-label">Dispensers (Demo)</span>
+            <span class="meta-val font-semibold" style="color: var(--accent-emerald);">
+              {{ station.available_points }} / {{ station.total_points }} Available
+            </span>
+          </div>
+          <div>
+            <span class="meta-label">Operating Hours</span>
+            <span class="meta-val">{{ station.opening_time }} - {{ station.closing_time }}</span>
+          </div>
+        </div>
+
+        <div style="margin-top: 1.15rem; display: flex; gap: 0.5rem; flex-wrap:wrap;">
+          <a href="{{ url_for('public.station_detail', station_id=station.station_id) }}" class="btn btn-secondary btn-sm" style="flex:1;">
+            Inspect &amp; Reserve &rarr;
+          </a>
+          {% if station.latitude is not none and station.longitude is not none %}
+            <a href="https://www.google.com/maps/dir/?api=1&destination={{ station.latitude }},{{ station.longitude }}" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm">
+              Directions &nearr;
+            </a>
+          {% endif %}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="card text-center" style="padding: 3rem 1.5rem;">
+    <div style="font-size: 3rem; margin-bottom: 1rem;">🔍</div>
+    <h3>No Charging Stations Found</h3>
+    <p class="text-muted" style="margin-top: 0.5rem; max-width: 480px; margin-left: auto; margin-right: auto;">
+      No charging stations matched your current search filters. Try clearing your filters or selecting another NCR city.
+    </p>
+    <div style="margin-top: 1.5rem;">
+      <a href="{{ url_for('public.browse_stations') }}" class="btn btn-primary">Reset Filters</a>
+    </div>
+  </div>
+{% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/ev_map.js') }}"></script>
+{% endblock %}
