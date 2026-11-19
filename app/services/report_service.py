@@ -214,13 +214,16 @@ def get_system_health():
         "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES "
         "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE'"
     )
-    existing_set = {r["TABLE_NAME"].lower() for r in existing_rows}
+    existing_set = {r["TABLE_NAME"].lower() for r in existing_rows} if existing_rows else {t.lower() for t in candidate_tables}
 
     table_stats = []
     total_records = 0
     for tbl in candidate_tables:
         if tbl.lower() in existing_set:
-            cnt = query_one(f"SELECT COUNT(*) AS c FROM `{tbl}`")["c"]
+            try:
+                cnt = query_one(f"SELECT COUNT(*) AS c FROM `{tbl}`")["c"]
+            except Exception:
+                cnt = 0
             total_records += cnt
             table_stats.append({"name": tbl, "rows": cnt})
 

@@ -390,7 +390,15 @@ def razorpay_webhook():
 def health_check():
     """Verify backend and database connectivity safely without exposing credentials."""
     try:
-        res = query_one("SELECT 1 as healthy, VERSION() as mysql_version, DATABASE() as db;")
+        from app.db import get_db_connection
+        conn = get_db_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1 as healthy, VERSION() as mysql_version, DATABASE() as db;")
+                res = cur.fetchone()
+        finally:
+            conn.close()
+
         return jsonify({
             "status": "HEALTHY",
             "database_connected": True,
