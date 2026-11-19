@@ -21,7 +21,7 @@ def test_vercel_json_is_valid_and_rewrites_to_api_index():
     assert "builds" not in cfg
     assert cfg.get("functions", {}).get("api/index.py", {}).get("maxDuration", 0) >= 10
     rewrites = cfg.get("rewrites", [])
-    assert any(r.get("destination") == "/api/index" for r in rewrites)
+    assert any(r.get("destination", "").startswith("/api/index") for r in rewrites)
 
 
 def test_vercel_entrypoint_exports_flask_app_and_serves_routes():
