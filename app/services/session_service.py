@@ -137,18 +137,21 @@ def complete_session(session_id, energy_kwh, user_id=None):
 
 def get_active_session_for_user(user_id):
     """Retrieve currently active session for an EV Owner."""
-    return query_one(
-        "SELECT cs.*, v.registration_no, v.make, v.model, "
-        "       cp.point_code, cp.connector_type, cp.max_power_kw, "
-        "       s.station_name, s.city "
-        "FROM ChargingSessions cs "
-        "JOIN Vehicles v ON v.vehicle_id = cs.vehicle_id "
-        "JOIN ChargingPoints cp ON cp.point_id = cs.point_id "
-        "JOIN Stations s ON s.station_id = cp.station_id "
-        "WHERE cs.user_id = %s AND cs.session_status = 'IN_PROGRESS' "
-        "ORDER BY cs.start_at DESC LIMIT 1",
-        (user_id,)
-    )
+    try:
+        return query_one(
+            "SELECT cs.*, v.registration_no, v.make, v.model, "
+            "       cp.point_code, cp.connector_type, cp.max_power_kw, "
+            "       s.station_name, s.city "
+            "FROM ChargingSessions cs "
+            "JOIN Vehicles v ON v.vehicle_id = cs.vehicle_id "
+            "JOIN ChargingPoints cp ON cp.point_id = cs.point_id "
+            "JOIN Stations s ON s.station_id = cp.station_id "
+            "WHERE cs.user_id = %s AND cs.session_status = 'IN_PROGRESS' "
+            "ORDER BY cs.start_at DESC LIMIT 1",
+            (user_id,)
+        )
+    except Exception:
+        return None
 
 
 def get_session_by_id(session_id, user_id=None):
@@ -172,49 +175,58 @@ def get_session_by_id(session_id, user_id=None):
     if user_id is not None:
         sql += " AND cs.user_id = %s"
         params.append(user_id)
-    return query_one(sql, params)
+    try:
+        return query_one(sql, params)
+    except Exception:
+        return None
 
 
 def get_user_sessions(user_id):
     """Retrieve full history of charging sessions for an EV owner."""
-    return query_all(
-        "SELECT cs.*, v.registration_no, v.make, v.model, "
-        "       cp.point_code, cp.connector_type, "
-        "       s.station_name, s.city, "
-        "       p.payment_id, p.payment_status, p.payment_method, p.transaction_reference, p.paid_at "
-        "FROM ChargingSessions cs "
-        "JOIN Vehicles v ON v.vehicle_id = cs.vehicle_id "
-        "JOIN ChargingPoints cp ON cp.point_id = cs.point_id "
-        "JOIN Stations s ON s.station_id = cp.station_id "
-        "LEFT JOIN Payments p ON p.payment_id = ("
-        "    SELECT p2.payment_id FROM Payments p2 WHERE p2.session_id = cs.session_id "
-        "    ORDER BY (p2.payment_status = 'SUCCESS') DESC, p2.payment_id DESC LIMIT 1"
-        ") "
-        "WHERE cs.user_id = %s "
-        "ORDER BY cs.start_at DESC",
-        (user_id,)
-    )
+    try:
+        return query_all(
+            "SELECT cs.*, v.registration_no, v.make, v.model, "
+            "       cp.point_code, cp.connector_type, "
+            "       s.station_name, s.city, "
+            "       p.payment_id, p.payment_status, p.payment_method, p.transaction_reference, p.paid_at "
+            "FROM ChargingSessions cs "
+            "JOIN Vehicles v ON v.vehicle_id = cs.vehicle_id "
+            "JOIN ChargingPoints cp ON cp.point_id = cs.point_id "
+            "JOIN Stations s ON s.station_id = cp.station_id "
+            "LEFT JOIN Payments p ON p.payment_id = ("
+            "    SELECT p2.payment_id FROM Payments p2 WHERE p2.session_id = cs.session_id "
+            "    ORDER BY (p2.payment_status = 'SUCCESS') DESC, p2.payment_id DESC LIMIT 1"
+            ") "
+            "WHERE cs.user_id = %s "
+            "ORDER BY cs.start_at DESC",
+            (user_id,)
+        )
+    except Exception:
+        return []
 
 
 def get_all_sessions():
     """Admin view: Retrieve all charging sessions system-wide."""
-    return query_all(
-        "SELECT cs.*, u.full_name AS user_name, u.email AS user_email, "
-        "       v.registration_no, v.make, v.model, "
-        "       cp.point_code, cp.connector_type, "
-        "       s.station_name, s.city, "
-        "       p.payment_id, p.payment_status, p.payment_method, p.transaction_reference "
-        "FROM ChargingSessions cs "
-        "JOIN Users u ON u.user_id = cs.user_id "
-        "JOIN Vehicles v ON v.vehicle_id = cs.vehicle_id "
-        "JOIN ChargingPoints cp ON cp.point_id = cs.point_id "
-        "JOIN Stations s ON s.station_id = cp.station_id "
-        "LEFT JOIN Payments p ON p.payment_id = ("
-        "    SELECT p2.payment_id FROM Payments p2 WHERE p2.session_id = cs.session_id "
-        "    ORDER BY (p2.payment_status = 'SUCCESS') DESC, p2.payment_id DESC LIMIT 1"
-        ") "
-        "ORDER BY cs.start_at DESC"
-    )
+    try:
+        return query_all(
+            "SELECT cs.*, u.full_name AS user_name, u.email AS user_email, "
+            "       v.registration_no, v.make, v.model, "
+            "       cp.point_code, cp.connector_type, "
+            "       s.station_name, s.city, "
+            "       p.payment_id, p.payment_status, p.payment_method, p.transaction_reference "
+            "FROM ChargingSessions cs "
+            "JOIN Users u ON u.user_id = cs.user_id "
+            "JOIN Vehicles v ON v.vehicle_id = cs.vehicle_id "
+            "JOIN ChargingPoints cp ON cp.point_id = cs.point_id "
+            "JOIN Stations s ON s.station_id = cp.station_id "
+            "LEFT JOIN Payments p ON p.payment_id = ("
+            "    SELECT p2.payment_id FROM Payments p2 WHERE p2.session_id = cs.session_id "
+            "    ORDER BY (p2.payment_status = 'SUCCESS') DESC, p2.payment_id DESC LIMIT 1"
+            ") "
+            "ORDER BY cs.start_at DESC"
+        )
+    except Exception:
+        return []
 
 
 def get_session_receipt(session_id, user_id=None):

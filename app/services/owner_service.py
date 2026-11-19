@@ -199,28 +199,34 @@ def review_owner_application(application_id, admin_user_id, action, admin_notes=
 
 def get_owner_stations(owner_user_id):
     """Retrieve only the charging stations assigned to this owner."""
-    return query_all(
-        "SELECT s.*, "
-        "       COUNT(DISTINCT cp.point_id) AS total_points, "
-        "       SUM(CASE WHEN cp.point_status = 'AVAILABLE' THEN 1 ELSE 0 END) AS available_points, "
-        "       SUM(CASE WHEN cp.point_status = 'CHARGING' THEN 1 ELSE 0 END) AS in_use_points, "
-        "       MIN(cp.tariff_per_kwh) AS min_tariff, "
-        "       MAX(cp.max_power_kw) AS max_power "
-        "FROM Stations s "
-        "LEFT JOIN ChargingPoints cp ON cp.station_id = s.station_id "
-        "WHERE s.owner_user_id = %s "
-        "GROUP BY s.station_id "
-        "ORDER BY s.station_id ASC",
-        (owner_user_id,)
-    )
+    try:
+        return query_all(
+            "SELECT s.*, "
+            "       COUNT(DISTINCT cp.point_id) AS total_points, "
+            "       SUM(CASE WHEN cp.point_status = 'AVAILABLE' THEN 1 ELSE 0 END) AS available_points, "
+            "       SUM(CASE WHEN cp.point_status = 'CHARGING' THEN 1 ELSE 0 END) AS in_use_points, "
+            "       MIN(cp.tariff_per_kwh) AS min_tariff, "
+            "       MAX(cp.max_power_kw) AS max_power "
+            "FROM Stations s "
+            "LEFT JOIN ChargingPoints cp ON cp.station_id = s.station_id "
+            "WHERE s.owner_user_id = %s "
+            "GROUP BY s.station_id "
+            "ORDER BY s.station_id ASC",
+            (owner_user_id,)
+        )
+    except Exception:
+        return []
 
 
 def get_owner_station_by_id(station_id, owner_user_id):
     """Retrieve station ensuring it belongs to the authenticated owner."""
-    return query_one(
-        "SELECT * FROM Stations WHERE station_id = %s AND owner_user_id = %s",
-        (station_id, owner_user_id)
-    )
+    try:
+        return query_one(
+            "SELECT * FROM Stations WHERE station_id = %s AND owner_user_id = %s",
+            (station_id, owner_user_id)
+        )
+    except Exception:
+        return None
 
 
 def verify_owner_station_access(station_id, owner_user_id):
@@ -231,54 +237,63 @@ def verify_owner_station_access(station_id, owner_user_id):
 
 def get_owner_charging_points(owner_user_id):
     """Retrieve all dispensers belonging to stations owned by this partner."""
-    return query_all(
-        "SELECT cp.*, s.station_name, s.city, s.address "
-        "FROM ChargingPoints cp "
-        "JOIN Stations s ON s.station_id = cp.station_id "
-        "WHERE s.owner_user_id = %s "
-        "ORDER BY s.station_name ASC, cp.point_code ASC",
-        (owner_user_id,)
-    )
+    try:
+        return query_all(
+            "SELECT cp.*, s.station_name, s.city, s.address "
+            "FROM ChargingPoints cp "
+            "JOIN Stations s ON s.station_id = cp.station_id "
+            "WHERE s.owner_user_id = %s "
+            "ORDER BY s.station_name ASC, cp.point_code ASC",
+            (owner_user_id,)
+        )
+    except Exception:
+        return []
 
 
 def get_owner_bookings(owner_user_id):
     """Retrieve bookings for stations owned by this partner, including payment status."""
-    return query_all(
-        "SELECT b.*, u.full_name AS customer_name, u.email AS customer_email, u.phone AS customer_phone, "
-        "       v.registration_no, v.make, v.model, "
-        "       cp.point_code, cp.connector_type, "
-        "       s.station_name, s.city, "
-        "       p.payment_id, p.payment_status, p.amount AS payment_amount, p.payment_method "
-        "FROM Bookings b "
-        "JOIN Users u ON u.user_id = b.user_id "
-        "JOIN Vehicles v ON v.vehicle_id = b.vehicle_id "
-        "JOIN ChargingPoints cp ON cp.point_id = b.point_id "
-        "JOIN Stations s ON s.station_id = cp.station_id "
-        "LEFT JOIN Payments p ON p.booking_id = b.booking_id "
-        "WHERE s.owner_user_id = %s "
-        "ORDER BY b.start_at DESC",
-        (owner_user_id,)
-    )
+    try:
+        return query_all(
+            "SELECT b.*, u.full_name AS customer_name, u.email AS customer_email, u.phone AS customer_phone, "
+            "       v.registration_no, v.make, v.model, "
+            "       cp.point_code, cp.connector_type, "
+            "       s.station_name, s.city, "
+            "       p.payment_id, p.payment_status, p.amount AS payment_amount, p.payment_method "
+            "FROM Bookings b "
+            "JOIN Users u ON u.user_id = b.user_id "
+            "JOIN Vehicles v ON v.vehicle_id = b.vehicle_id "
+            "JOIN ChargingPoints cp ON cp.point_id = b.point_id "
+            "JOIN Stations s ON s.station_id = cp.station_id "
+            "LEFT JOIN Payments p ON p.booking_id = b.booking_id "
+            "WHERE s.owner_user_id = %s "
+            "ORDER BY b.start_at DESC",
+            (owner_user_id,)
+        )
+    except Exception:
+        return []
 
 
 def get_owner_sessions(owner_user_id):
     """Retrieve charging sessions for stations owned by this partner."""
-    return query_all(
-        "SELECT cs.*, u.full_name AS customer_name, u.email AS customer_email, "
-        "       v.registration_no, v.make, v.model, "
-        "       cp.point_code, cp.connector_type, "
-        "       s.station_name, s.city, "
-        "       p.payment_status, p.amount AS paid_amount, p.transaction_reference "
-        "FROM ChargingSessions cs "
-        "JOIN Users u ON u.user_id = cs.user_id "
-        "JOIN Vehicles v ON v.vehicle_id = cs.vehicle_id "
-        "JOIN ChargingPoints cp ON cp.point_id = cs.point_id "
-        "JOIN Stations s ON s.station_id = cp.station_id "
-        "LEFT JOIN Payments p ON p.session_id = cs.session_id "
-        "WHERE s.owner_user_id = %s "
-        "ORDER BY cs.start_at DESC",
-        (owner_user_id,)
-    )
+    try:
+        return query_all(
+            "SELECT cs.*, u.full_name AS customer_name, u.email AS customer_email, "
+            "       v.registration_no, v.make, v.model, "
+            "       cp.point_code, cp.connector_type, "
+            "       s.station_name, s.city, "
+            "       p.payment_status, p.amount AS paid_amount, p.transaction_reference "
+            "FROM ChargingSessions cs "
+            "JOIN Users u ON u.user_id = cs.user_id "
+            "JOIN Vehicles v ON v.vehicle_id = cs.vehicle_id "
+            "JOIN ChargingPoints cp ON cp.point_id = cs.point_id "
+            "JOIN Stations s ON s.station_id = cp.station_id "
+            "LEFT JOIN Payments p ON p.session_id = cs.session_id "
+            "WHERE s.owner_user_id = %s "
+            "ORDER BY cs.start_at DESC",
+            (owner_user_id,)
+        )
+    except Exception:
+        return []
 
 
 def get_owner_dashboard_kpis(owner_user_id):
@@ -291,43 +306,46 @@ def get_owner_dashboard_kpis(owner_user_id):
         "total_revenue": 0.0,
     }
 
-    # Station & Point counts
-    counts = query_one(
-        "SELECT COUNT(DISTINCT s.station_id) AS st_cnt, "
-        "       COUNT(DISTINCT cp.point_id) AS pt_cnt "
-        "FROM Stations s "
-        "LEFT JOIN ChargingPoints cp ON cp.station_id = s.station_id "
-        "WHERE s.owner_user_id = %s",
-        (owner_user_id,)
-    )
-    if counts:
-        kpis["station_count"] = int(counts.get("st_cnt") or 0)
-        kpis["point_count"] = int(counts.get("pt_cnt") or 0)
+    try:
+        # Station & Point counts
+        counts = query_one(
+            "SELECT COUNT(DISTINCT s.station_id) AS st_cnt, "
+            "       COUNT(DISTINCT cp.point_id) AS pt_cnt "
+            "FROM Stations s "
+            "LEFT JOIN ChargingPoints cp ON cp.station_id = s.station_id "
+            "WHERE s.owner_user_id = %s",
+            (owner_user_id,)
+        )
+        if counts:
+            kpis["station_count"] = int(counts.get("st_cnt") or 0)
+            kpis["point_count"] = int(counts.get("pt_cnt") or 0)
 
-    # Active upcoming bookings on owned points
-    b_row = query_one(
-        "SELECT COUNT(*) AS cnt "
-        "FROM Bookings b "
-        "JOIN ChargingPoints cp ON cp.point_id = b.point_id "
-        "JOIN Stations s ON s.station_id = cp.station_id "
-        "WHERE s.owner_user_id = %s AND b.booking_status IN ('CONFIRMED', 'PENDING') AND b.end_at >= NOW()",
-        (owner_user_id,)
-    )
-    if b_row:
-        kpis["active_bookings"] = int(b_row.get("cnt") or 0)
+        # Active upcoming bookings on owned points
+        b_row = query_one(
+            "SELECT COUNT(*) AS cnt "
+            "FROM Bookings b "
+            "JOIN ChargingPoints cp ON cp.point_id = b.point_id "
+            "JOIN Stations s ON s.station_id = cp.station_id "
+            "WHERE s.owner_user_id = %s AND b.booking_status IN ('CONFIRMED', 'PENDING') AND b.end_at >= NOW()",
+            (owner_user_id,)
+        )
+        if b_row:
+            kpis["active_bookings"] = int(b_row.get("cnt") or 0)
 
-    # Sessions stats
-    sess_row = query_one(
-        "SELECT COALESCE(SUM(cs.energy_kwh), 0) AS total_kwh, "
-        "       COALESCE(SUM(cs.total_cost), 0) AS total_rev "
-        "FROM ChargingSessions cs "
-        "JOIN ChargingPoints cp ON cp.point_id = cs.point_id "
-        "JOIN Stations s ON s.station_id = cp.station_id "
-        "WHERE s.owner_user_id = %s",
-        (owner_user_id,)
-    )
-    if sess_row:
-        kpis["total_kwh_delivered"] = round(float(sess_row.get("total_kwh") or 0.0), 2)
-        kpis["total_revenue"] = round(float(sess_row.get("total_rev") or 0.0), 2)
+        # Sessions stats
+        sess_row = query_one(
+            "SELECT COALESCE(SUM(cs.energy_kwh), 0) AS total_kwh, "
+            "       COALESCE(SUM(cs.total_cost), 0) AS total_rev "
+            "FROM ChargingSessions cs "
+            "JOIN ChargingPoints cp ON cp.point_id = cs.point_id "
+            "JOIN Stations s ON s.station_id = cp.station_id "
+            "WHERE s.owner_user_id = %s",
+            (owner_user_id,)
+        )
+        if sess_row:
+            kpis["total_kwh_delivered"] = round(float(sess_row.get("total_kwh") or 0.0), 2)
+            kpis["total_revenue"] = round(float(sess_row.get("total_rev") or 0.0), 2)
+    except Exception:
+        pass
 
     return kpis

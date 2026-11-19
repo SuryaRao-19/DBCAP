@@ -10,10 +10,13 @@ VALID_CONNECTOR_TYPES = ("TYPE2", "CCS2", "CHADEMO", "GB_T")
 
 def get_vehicles_by_user(user_id):
     """Retrieve all vehicles owned by a specific EV customer, default vehicle first."""
-    return query_all(
-        "SELECT * FROM Vehicles WHERE user_id = %s ORDER BY is_default DESC, created_at DESC",
-        (user_id,)
-    )
+    try:
+        return query_all(
+            "SELECT * FROM Vehicles WHERE user_id = %s ORDER BY is_default DESC, created_at DESC",
+            (user_id,)
+        )
+    except Exception:
+        return []
 
 
 def get_vehicle_by_id(vehicle_id, user_id=None):
@@ -23,7 +26,10 @@ def get_vehicle_by_id(vehicle_id, user_id=None):
     if user_id:
         sql += " AND user_id = %s"
         params.append(user_id)
-    return query_one(sql, params)
+    try:
+        return query_one(sql, params)
+    except Exception:
+        return None
 
 
 def add_vehicle(

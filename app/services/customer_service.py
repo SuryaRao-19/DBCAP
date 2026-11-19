@@ -23,76 +23,81 @@ def get_customer_dashboard_kpis(user_id):
         "unread_notifications_count": 0,
     }
 
-    # Session stats
-    session_row = query_one(
-        "SELECT COUNT(*) AS total_sessions, "
-        "       COALESCE(SUM(energy_kwh), 0) AS total_kwh, "
-        "       COALESCE(SUM(total_cost), 0) AS total_cost "
-        "FROM ChargingSessions "
-        "WHERE user_id = %s",
-        (user_id,)
-    )
-    if session_row:
-        kpis["total_sessions"] = int(session_row.get("total_sessions") or 0)
-        kpis["total_energy_kwh"] = round(float(session_row.get("total_kwh") or 0.0), 2)
-        kpis["total_amount_spent"] = round(float(session_row.get("total_cost") or 0.0), 2)
+    try:
+        # Session stats
+        session_row = query_one(
+            "SELECT COUNT(*) AS total_sessions, "
+            "       COALESCE(SUM(energy_kwh), 0) AS total_kwh, "
+            "       COALESCE(SUM(total_cost), 0) AS total_cost "
+            "FROM ChargingSessions "
+            "WHERE user_id = %s",
+            (user_id,)
+        )
+        if session_row:
+            kpis["total_sessions"] = int(session_row.get("total_sessions") or 0)
+            kpis["total_energy_kwh"] = round(float(session_row.get("total_kwh") or 0.0), 2)
+            kpis["total_amount_spent"] = round(float(session_row.get("total_cost") or 0.0), 2)
 
-    # Active/upcoming bookings
-    active_b = query_one(
-        "SELECT COUNT(*) AS cnt FROM Bookings "
-        "WHERE user_id = %s AND booking_status IN ('CONFIRMED', 'PENDING') AND end_at >= NOW()",
-        (user_id,)
-    )
-    if active_b:
-        kpis["active_bookings_count"] = int(active_b.get("cnt") or 0)
+        # Active/upcoming bookings
+        active_b = query_one(
+            "SELECT COUNT(*) AS cnt FROM Bookings "
+            "WHERE user_id = %s AND booking_status IN ('CONFIRMED', 'PENDING') AND end_at >= NOW()",
+            (user_id,)
+        )
+        if active_b:
+            kpis["active_bookings_count"] = int(active_b.get("cnt") or 0)
 
-    # Vehicles count
-    veh_row = query_one("SELECT COUNT(*) AS cnt FROM Vehicles WHERE user_id = %s", (user_id,))
-    if veh_row:
-        kpis["vehicles_count"] = int(veh_row.get("cnt") or 0)
+        # Vehicles count
+        veh_row = query_one("SELECT COUNT(*) AS cnt FROM Vehicles WHERE user_id = %s", (user_id,))
+        if veh_row:
+            kpis["vehicles_count"] = int(veh_row.get("cnt") or 0)
 
-    # Saved stations count
-    saved_row = query_one("SELECT COUNT(*) AS cnt FROM SavedStations WHERE user_id = %s", (user_id,))
-    if saved_row:
-        kpis["saved_stations_count"] = int(saved_row.get("cnt") or 0)
+        # Saved stations count
+        saved_row = query_one("SELECT COUNT(*) AS cnt FROM SavedStations WHERE user_id = %s", (user_id,))
+        if saved_row:
+            kpis["saved_stations_count"] = int(saved_row.get("cnt") or 0)
 
-    # Unread notifications count
-    notif_row = query_one("SELECT COUNT(*) AS cnt FROM Notifications WHERE user_id = %s AND is_read = 0", (user_id,))
-    if notif_row:
-        kpis["unread_notifications_count"] = int(notif_row.get("cnt") or 0)
+        # Unread notifications count
+        notif_row = query_one("SELECT COUNT(*) AS cnt FROM Notifications WHERE user_id = %s AND is_read = 0", (user_id,))
+        if notif_row:
+            kpis["unread_notifications_count"] = int(notif_row.get("cnt") or 0)
+    except Exception:
+        pass
 
     return kpis
 
 
 def get_customer_recent_activity(user_id, limit=5):
     """Retrieve recent bookings and sessions for customer dashboard display."""
-    recent_bookings = query_all(
-        "SELECT b.*, s.station_name, s.city, cp.point_code, cp.connector_type, v.registration_no, "
-        "       bq.qr_token "
-        "FROM Bookings b "
-        "JOIN ChargingPoints cp ON cp.point_id = b.point_id "
-        "JOIN Stations s ON s.station_id = cp.station_id "
-        "JOIN Vehicles v ON v.vehicle_id = b.vehicle_id "
-        "LEFT JOIN BookingQRCodes bq ON bq.booking_id = b.booking_id "
-        "WHERE b.user_id = %s "
-        "ORDER BY b.start_at DESC LIMIT %s",
-        (user_id, limit)
-    )
+    try:
+        recent_bookings = query_all(
+            "SELECT b.*, s.station_name, s.city, cp.point_code, cp.connector_type, v.registration_no, "
+            "       bq.qr_token "
+            "FROM Bookings b "
+            "JOIN ChargingPoints cp ON cp.point_id = b.point_id "
+            "JOIN Stations s ON s.station_id = cp.station_id "
+            "JOIN Vehicles v ON v.vehicle_id = b.vehicle_id "
+            "LEFT JOIN BookingQRCodes bq ON bq.booking_id = b.booking_id "
+            "WHERE b.user_id = %s "
+            "ORDER BY b.start_at DESC LIMIT %s",
+            (user_id, limit)
+        )
 
-    recent_sessions = query_all(
-        "SELECT cs.*, s.station_name, s.city, cp.point_code, cp.connector_type, v.registration_no, "
-        "       p.payment_status, p.payment_id "
-        "FROM ChargingSessions cs "
-        "JOIN ChargingPoints cp ON cp.point_id = cs.point_id "
-        "JOIN Stations s ON s.station_id = cp.station_id "
-        "JOIN Vehicles v ON v.vehicle_id = cs.vehicle_id "
-        "LEFT JOIN Payments p ON p.session_id = cs.session_id "
-        "WHERE cs.user_id = %s "
-        "ORDER BY cs.start_at DESC LIMIT %s",
-        (user_id, limit)
-    )
-
-    return recent_bookings, recent_sessions
+        recent_sessions = query_all(
+            "SELECT cs.*, s.station_name, s.city, cp.point_code, cp.connector_type, v.registration_no, "
+            "       p.payment_status, p.payment_id "
+            "FROM ChargingSessions cs "
+            "JOIN ChargingPoints cp ON cp.point_id = cs.point_id "
+            "JOIN Stations s ON s.station_id = cp.station_id "
+            "JOIN Vehicles v ON v.vehicle_id = cs.vehicle_id "
+            "LEFT JOIN Payments p ON p.session_id = cs.session_id "
+            "WHERE cs.user_id = %s "
+            "ORDER BY cs.start_at DESC LIMIT %s",
+            (user_id, limit)
+        )
+        return recent_bookings, recent_sessions
+    except Exception:
+        return [], []
 
 
 # ============================================================================
@@ -101,11 +106,14 @@ def get_customer_recent_activity(user_id, limit=5):
 
 def is_station_saved(user_id, station_id):
     """Check if customer has bookmarked a station."""
-    row = query_one(
-        "SELECT saved_id FROM SavedStations WHERE user_id = %s AND station_id = %s",
-        (user_id, station_id)
-    )
-    return bool(row)
+    try:
+        row = query_one(
+            "SELECT saved_id FROM SavedStations WHERE user_id = %s AND station_id = %s",
+            (user_id, station_id)
+        )
+        return bool(row)
+    except Exception:
+        return False
 
 
 def toggle_saved_station(user_id, station_id, notes=None):
@@ -132,21 +140,24 @@ def toggle_saved_station(user_id, station_id, notes=None):
 
 def get_saved_stations_for_user(user_id):
     """Retrieve full station cards bookmarked by customer."""
-    return query_all(
-        "SELECT ss.saved_id, ss.created_at AS saved_at, "
-        "       s.*, "
-        "       COUNT(DISTINCT cp.point_id) AS total_points, "
-        "       SUM(CASE WHEN cp.point_status = 'AVAILABLE' THEN 1 ELSE 0 END) AS available_points, "
-        "       MIN(cp.tariff_per_kwh) AS min_tariff, "
-        "       MAX(cp.max_power_kw) AS max_power "
-        "FROM SavedStations ss "
-        "JOIN Stations s ON s.station_id = ss.station_id "
-        "LEFT JOIN ChargingPoints cp ON cp.station_id = s.station_id "
-        "WHERE ss.user_id = %s "
-        "GROUP BY ss.saved_id, s.station_id "
-        "ORDER BY ss.created_at DESC",
-        (user_id,)
-    )
+    try:
+        return query_all(
+            "SELECT ss.saved_id, ss.created_at AS saved_at, "
+            "       s.*, "
+            "       COUNT(DISTINCT cp.point_id) AS total_points, "
+            "       SUM(CASE WHEN cp.point_status = 'AVAILABLE' THEN 1 ELSE 0 END) AS available_points, "
+            "       MIN(cp.tariff_per_kwh) AS min_tariff, "
+            "       MAX(cp.max_power_kw) AS max_power "
+            "FROM SavedStations ss "
+            "JOIN Stations s ON s.station_id = ss.station_id "
+            "LEFT JOIN ChargingPoints cp ON cp.station_id = s.station_id "
+            "WHERE ss.user_id = %s "
+            "GROUP BY ss.saved_id, s.station_id "
+            "ORDER BY ss.created_at DESC",
+            (user_id,)
+        )
+    except Exception:
+        return []
 
 
 # ============================================================================

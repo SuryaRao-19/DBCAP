@@ -127,34 +127,40 @@ def create_booking(user_id, vehicle_id, point_id, start_at, end_at):
 
 def get_user_bookings(user_id):
     """Retrieve all reservations for a specific EV owner."""
-    return query_all(
-        "SELECT b.*, v.registration_no, v.make, v.model, "
-        "       cp.point_code, cp.connector_type, cp.tariff_per_kwh, "
-        "       s.station_name, s.city, s.address "
-        "FROM Bookings b "
-        "JOIN Vehicles v ON v.vehicle_id = b.vehicle_id "
-        "JOIN ChargingPoints cp ON cp.point_id = b.point_id "
-        "JOIN Stations s ON s.station_id = cp.station_id "
-        "WHERE b.user_id = %s "
-        "ORDER BY b.start_at DESC",
-        (user_id,)
-    )
+    try:
+        return query_all(
+            "SELECT b.*, v.registration_no, v.make, v.model, "
+            "       cp.point_code, cp.connector_type, cp.tariff_per_kwh, "
+            "       s.station_name, s.city, s.address "
+            "FROM Bookings b "
+            "JOIN Vehicles v ON v.vehicle_id = b.vehicle_id "
+            "JOIN ChargingPoints cp ON cp.point_id = b.point_id "
+            "JOIN Stations s ON s.station_id = cp.station_id "
+            "WHERE b.user_id = %s "
+            "ORDER BY b.start_at DESC",
+            (user_id,)
+        )
+    except Exception:
+        return []
 
 
 def get_all_bookings():
     """Admin view: Retrieve all bookings system-wide."""
-    return query_all(
-        "SELECT b.*, u.full_name AS user_name, u.email AS user_email, "
-        "       v.registration_no, v.make, v.model, "
-        "       cp.point_code, cp.connector_type, "
-        "       s.station_name, s.city "
-        "FROM Bookings b "
-        "JOIN Users u ON u.user_id = b.user_id "
-        "JOIN Vehicles v ON v.vehicle_id = b.vehicle_id "
-        "JOIN ChargingPoints cp ON cp.point_id = b.point_id "
-        "JOIN Stations s ON s.station_id = cp.station_id "
-        "ORDER BY b.start_at DESC"
-    )
+    try:
+        return query_all(
+            "SELECT b.*, u.full_name AS user_name, u.email AS user_email, "
+            "       v.registration_no, v.make, v.model, "
+            "       cp.point_code, cp.connector_type, "
+            "       s.station_name, s.city "
+            "FROM Bookings b "
+            "JOIN Users u ON u.user_id = b.user_id "
+            "JOIN Vehicles v ON v.vehicle_id = b.vehicle_id "
+            "JOIN ChargingPoints cp ON cp.point_id = b.point_id "
+            "JOIN Stations s ON s.station_id = cp.station_id "
+            "ORDER BY b.start_at DESC"
+        )
+    except Exception:
+        return []
 
 
 def cancel_booking(booking_id, user_id=None):
