@@ -40,6 +40,12 @@ def _matches_speed_bucket(dispensers, speed_filter):
     return True
 
 
+@public_bp.route("/api/index")
+def vercel_entrypoint_redirect():
+    """Fallback handler when Vercel serverless functions invoke /api/index directly."""
+    return landing()
+
+
 @public_bp.route("/")
 def landing():
     """Public landing page with verified reference identity, NCR stations, and map preview."""
