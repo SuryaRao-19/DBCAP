@@ -43,8 +43,18 @@ def _matches_speed_bucket(dispensers, speed_filter):
 @public_bp.route("/")
 def landing():
     """Public landing page with verified reference identity, NCR stations, and map preview."""
-    metrics = get_admin_dashboard_metrics()
-    stations = get_all_stations(status="ACTIVE", only_approved=True)
+    try:
+        metrics = get_admin_dashboard_metrics()
+    except Exception:
+        metrics = {
+            "total_users": 0, "total_stations": 0, "total_chargers": 0,
+            "total_sessions": 0, "total_revenue": 0, "total_energy_kwh": 0,
+            "verified_stations": 0,
+        }
+    try:
+        stations = get_all_stations(status="ACTIVE", only_approved=True)
+    except Exception:
+        stations = []
     cities = sorted(list(set(s["city"] for s in stations if s.get("city"))))
 
     return render_template(
@@ -66,7 +76,10 @@ def landing():
 def about():
     """About Us page detailing verified Tata Power EZ Charge case study & data transparency."""
     data_sources = get_data_sources()
-    stations = get_all_stations(status="ACTIVE", only_approved=True)
+    try:
+        stations = get_all_stations(status="ACTIVE", only_approved=True)
+    except Exception:
+        stations = []
     city_counts = {}
     for s in stations:
         city_counts[s["city"]] = city_counts.get(s["city"], 0) + 1
@@ -99,7 +112,10 @@ def browse_stations():
     speed_filter = request.args.get("speed", "").strip().upper()
     query = request.args.get("q", "").strip().lower()
 
-    all_active_stations = get_all_stations(status="ACTIVE", only_approved=True)
+    try:
+        all_active_stations = get_all_stations(status="ACTIVE", only_approved=True)
+    except Exception:
+        all_active_stations = []
     available_cities = sorted(list(set(s["city"] for s in all_active_stations if s.get("city"))))
 
     stations_for_city = (
@@ -107,7 +123,10 @@ def browse_stations():
         if city_filter
         else all_active_stations
     )
-    all_points = get_all_charging_points(only_approved=True)
+    try:
+        all_points = get_all_charging_points(only_approved=True)
+    except Exception:
+        all_points = []
     available_connectors = sorted(list(set(p["connector_type"] for p in all_points if p.get("connector_type"))))
 
     points_by_station = {}

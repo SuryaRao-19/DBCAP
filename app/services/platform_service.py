@@ -102,10 +102,37 @@ VERIFIED_ANNOUNCEMENTS = [
 ]
 
 
+DEFAULT_OPERATOR = {
+    "operator_name": "Tata Power EZ Charge",
+    "parent_company": "The Tata Power Company Limited",
+    "official_website": "https://www.tatapower.com/ezcharge/",
+    "play_store_url": "https://play.google.com/store/apps/details?id=com.tatapower.evapp",
+    "app_store_url": "https://apps.apple.com/in/app/tata-power-ez-charge/id1496350476",
+    "linktree_url": "https://linktr.ee/Tata_Power_EZ_Charge",
+    "support_phone": "1800 833 2233",
+    "support_email": "evsupport@tatapower.com",
+    "network_scale_summary": "6,700+ public/fleet points, 2.5 lakh+ home chargers across 700+ cities",
+    "cities_coverage_summary": "700+ cities and nationwide highways",
+    "mission_text": "Empower a billion lives through sustainable, clean energy mobility.",
+    "vision_text": "India's most accessible, reliable, and verified EV charging ecosystem.",
+    "is_independent_case_study": 1,
+    "verification_status": "VERIFIED",
+    "source_url": "https://www.tatapower.com/ezcharge/",
+}
+
+DEFAULT_SOCIAL_LINKS = [
+    {"platform": "INSTAGRAM", "display_label": "Instagram", "handle": "@tatapowercompanyltd", "url": "https://www.instagram.com/tatapowercompanyltd/"},
+    {"platform": "FACEBOOK", "display_label": "Facebook", "handle": "@tatapower", "url": "https://www.facebook.com/tatapower/"},
+    {"platform": "LINKEDIN", "display_label": "LinkedIn", "handle": "Tata Power", "url": "https://www.linkedin.com/company/tata-power/"},
+    {"platform": "X_TWITTER", "display_label": "X (Twitter)", "handle": "@tatapower", "url": "https://x.com/tatapower"},
+    {"platform": "WEBSITE", "display_label": "Official EZ Charge Portal", "handle": "EZ Charge", "url": "https://www.tatapower.com/ezcharge/"},
+]
+
+
 def get_platform_operator():
     """Retrieve verified reference operator profile from MySQL."""
     try:
-        return query_one(
+        row = query_one(
             "SELECT operator_id, operator_name, parent_company, official_website, "
             "       play_store_url, app_store_url, linktree_url, support_phone, support_email, "
             "       network_scale_summary, cities_coverage_summary, mission_text, vision_text, "
@@ -113,19 +140,21 @@ def get_platform_operator():
             "       source_url, last_verified_at "
             "FROM NetworkOperators ORDER BY operator_id LIMIT 1"
         )
+        return row or DEFAULT_OPERATOR
     except Exception:
-        return None
+        return DEFAULT_OPERATOR
 
 
 def get_verified_social_links():
     """Retrieve verified corporate social media links."""
     try:
-        return query_all(
+        rows = query_all(
             "SELECT social_id, platform, display_label, handle, url, verification_status, source_url, last_verified_at "
             "FROM SocialLinks ORDER BY FIELD(platform, 'INSTAGRAM', 'FACEBOOK', 'LINKEDIN', 'X_TWITTER', 'YOUTUBE', 'WEBSITE')"
         )
+        return rows if rows else DEFAULT_SOCIAL_LINKS
     except Exception:
-        return []
+        return DEFAULT_SOCIAL_LINKS
 
 
 def get_data_sources():

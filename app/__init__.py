@@ -119,7 +119,10 @@ def create_app(test_config=None):
             app.config.get("MYSQL_DATABASE"),
         ])
         if not (has_db_url or has_mysql_creds):
-            raise RuntimeError("Production database configuration (DATABASE_URL or MYSQL_*) is missing.")
+            app.logger.warning(
+                "Production database configuration (DATABASE_URL or MYSQL_*) is missing. "
+                "The portal will serve static & reference pages; set DATABASE_URL in Vercel for live database features."
+            )
 
     csrf.init_app(app)
     oauth.init_app(app)
