@@ -5,7 +5,7 @@ EV Charging Station Management System
 import os
 import re
 import requests
-from flask import current_app
+from flask import current_app, has_request_context, request
 from app.db import query_all, query_one, execute
 
 WEB3FORMS_ENDPOINT = "https://api.web3forms.com/submit"
@@ -204,11 +204,23 @@ def submit_contact_enquiry(full_name, email, phone, subject, category, message, 
         ),
     }
 
+    origin = "https://ev-chargenet-portal.vercel.app"
+    if has_request_context() and request:
+        origin = request.host_url.rstrip("/")
+
+    req_headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Origin": origin,
+        "Referer": f"{origin}/contact",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    }
+
     try:
         resp = requests.post(
             WEB3FORMS_ENDPOINT,
             json=payload,
-            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            headers=req_headers,
             timeout=10,
         )
         data = {}

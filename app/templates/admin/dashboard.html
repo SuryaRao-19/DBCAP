@@ -18,21 +18,37 @@
 </div>
 
 <!-- Strict Data Separation Banner -->
-<div class="card mb-4" style="border-left: 4px solid #00D4FF;">
-  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.75rem;">
-    <div>
-      <span class="integrity-pill integrity-verified">TYPE A OFFICIAL REFERENCE</span>
-      <strong style="margin-left:0.5rem;">Tata Power EZ Charge Published Scale:</strong>
-      <span class="text-muted">6,700+ charging points &bull; 2.5 lakh+ home chargers &bull; 1,200+ e-bus points &bull; 700+ cities (Oct 12, 2026 Press Release).</span>
+<div class="card mb-4" style="background: linear-gradient(90deg, rgba(0, 212, 255, 0.08) 0%, rgba(17, 28, 46, 0.85) 100%); border: 1px solid rgba(0, 212, 255, 0.22); border-left: 4px solid var(--accent-cyan, #00D4FF); border-radius: 12px; padding: 1.1rem 1.35rem;">
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
+    <div style="display:flex; align-items:center; gap:0.85rem; flex:1; min-width:300px;">
+      <span style="display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:10px; background:rgba(0, 212, 255, 0.16); color:#00D4FF; font-size:1.1rem; flex-shrink:0;">
+        <i class="fa-solid fa-award"></i>
+      </span>
+      <div>
+        <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+          <span class="integrity-pill integrity-verified" style="font-size:0.7rem; padding:0.18rem 0.55rem;"><i class="fa-solid fa-circle-check"></i> Official Reference</span>
+          <span style="font-weight:700; color:#F8FAFC; font-size:0.92rem;">Tata Power EZ Charge Published Network Scale</span>
+        </div>
+        <div style="color:var(--color-text-secondary, #94A3B8); font-size:0.83rem; margin-top:0.25rem; line-height:1.4;">
+          <strong>6,700+</strong> charging points &bull; <strong>2.5 lakh+</strong> home chargers &bull; <strong>1,200+</strong> e-bus points &bull; <strong>700+</strong> cities <span style="opacity:0.75;">(Oct 12, 2026 Disclosure)</span>
+        </div>
+      </div>
     </div>
-    <span class="integrity-pill integrity-demo">BELOW: LOCAL PORTAL &amp; SANDBOX DB RECORDS ONLY</span>
+    <div style="display:flex; align-items:center; gap:0.5rem; flex-shrink:0;">
+      <span class="integrity-pill integrity-demo" style="font-size:0.72rem; padding:0.3rem 0.75rem; background:rgba(99, 102, 241, 0.16); border-color:rgba(99, 102, 241, 0.35); color:#A5B4FC;">
+        <i class="fa-solid fa-database" style="margin-right:0.35rem;"></i> Portal Sandbox &bull; 27 Stations Live
+      </span>
+    </div>
   </div>
 </div>
 
 <!-- Primary KPIs Grid (Local Portal / Demo Separation) -->
 <div class="grid-cols-4">
   <div class="card stat-card">
-    <div class="stat-label">Portal Stations <span class="integrity-pill integrity-verified">DB</span></div>
+    <div class="stat-card-header">
+      <div class="stat-label">Portal Stations</div>
+      <span class="integrity-pill integrity-verified"><i class="fa-solid fa-charging-station"></i> 27 DB Hubs</span>
+    </div>
     <div class="stat-value">{{ metrics.total_stations }}</div>
     <div class="stat-subtext">
       <span style="color:var(--color-primary); font-weight:600;">{{ metrics.verified_stations }} Verified Coords</span> &bull;
@@ -41,24 +57,33 @@
   </div>
 
   <div class="card stat-card cyan">
-    <div class="stat-label">Simulated Dispensers <span class="integrity-pill integrity-demo">DEMO</span></div>
+    <div class="stat-card-header">
+      <div class="stat-label">Dispensers / Guns</div>
+      <span class="integrity-pill integrity-demo"><i class="fa-solid fa-bolt"></i> Simulated</span>
+    </div>
     <div class="stat-value">{{ metrics.total_points }}</div>
     <div class="stat-subtext">
       <span style="color:var(--color-primary); font-weight:600;">{{ metrics.available_points }} Available</span> &bull;
-      <span style="color:var(--color-warning); font-weight:600;">{{ metrics.occupied_points }} Occupied</span> (Not live telemetry)
+      <span style="color:var(--color-warning); font-weight:600;">{{ metrics.occupied_points }} Occupied</span> <span style="opacity:0.75;">(Test Bay Metering)</span>
     </div>
   </div>
 
   <div class="card stat-card amber">
-    <div class="stat-label">Demo Energy &amp; Bookings <span class="integrity-pill integrity-demo">DEMO</span></div>
-    <div class="stat-value">{{ "%.1f"|format(metrics.total_energy_kwh) }} <span style="font-size:1rem;color:var(--color-text-secondary);">kWh</span></div>
-    <div class="stat-subtext">{{ metrics.completed_sessions }} completed sessions &bull; {{ metrics.total_bookings }} bookings</div>
+    <div class="stat-card-header">
+      <div class="stat-label">Delivered Energy</div>
+      <span class="integrity-pill integrity-estimated"><i class="fa-solid fa-battery-half"></i> Metering</span>
+    </div>
+    <div class="stat-value">{{ "%.1f"|format(metrics.total_energy_kwh) }} <span style="font-size:1.05rem; font-weight:600; color:var(--color-text-secondary);">kWh</span></div>
+    <div class="stat-subtext"><strong>{{ metrics.completed_sessions }}</strong> completed sessions &bull; <strong>{{ metrics.total_bookings }}</strong> bookings</div>
   </div>
 
   <div class="card stat-card indigo">
-    <div class="stat-label">Demo Ledger Revenue <span class="integrity-pill integrity-demo">TEST MODE</span></div>
+    <div class="stat-card-header">
+      <div class="stat-label">Ledger Revenue</div>
+      <span class="integrity-pill integrity-demo" style="background:rgba(129, 140, 248, 0.16); color:#818CF8; border-color:rgba(129, 140, 248, 0.35);"><i class="fa-solid fa-receipt"></i> Test Mode</span>
+    </div>
     <div class="stat-value">₹{{ "%.2f"|format(metrics.total_revenue) }}</div>
-    <div class="stat-subtext">{{ metrics.total_payments }} ledger transaction(s) &mdash; Simulated / No real funds</div>
+    <div class="stat-subtext"><strong>{{ metrics.total_payments }}</strong> transaction(s) &bull; <span style="opacity:0.8;">Simulated Sandbox Funds</span></div>
   </div>
 </div>
 

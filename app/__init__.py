@@ -102,6 +102,7 @@ def create_app(test_config=None):
         PERMANENT_SESSION_LIFETIME=timedelta(hours=2),
         WTF_CSRF_ENABLED=True,
         WTF_CSRF_TIME_LIMIT=3600,
+        SEND_FILE_MAX_AGE_DEFAULT=86400,
     )
 
     if test_config:
@@ -165,6 +166,12 @@ def create_app(test_config=None):
             "google_oauth_enabled": is_google_oauth_configured(app),
             "supabase_config": get_supabase_public_config(app),
         }
+
+    @app.after_request
+    def add_cache_and_performance_headers(response):
+        if request.path.startswith("/static/"):
+            response.headers["Cache-Control"] = "public, max-age=86400, stale-while-revalidate=604800"
+        return response
 
     # Global Error Handlers
     @app.errorhandler(CSRFError)
