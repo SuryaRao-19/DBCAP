@@ -31,12 +31,11 @@ CHARGEALONG_INVESTIGATION = {
 
 
 def _get_ocm_api_key(explicit_key=None):
-    if explicit_key:
+    if explicit_key is not None:
         return str(explicit_key).strip()
     if current_app:
-        cfg_key = current_app.config.get("OPEN_CHARGE_MAP_API_KEY", "")
-        if cfg_key:
-            return str(cfg_key).strip()
+        if "OPEN_CHARGE_MAP_API_KEY" in current_app.config:
+            return str(current_app.config.get("OPEN_CHARGE_MAP_API_KEY") or "").strip()
     return os.getenv("OPEN_CHARGE_MAP_API_KEY", "").strip()
 
 
