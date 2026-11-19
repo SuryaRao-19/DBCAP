@@ -24,6 +24,7 @@ htmlcov/
 database/backups/
 *.dump
 scratch/
+app/static/uploads/avatars/avatar_*.png
 
 # IDE and OS files
 .vscode/
