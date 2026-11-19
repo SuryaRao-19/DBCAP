@@ -7,6 +7,14 @@ from flask import session, redirect, url_for, flash, abort, request, jsonify
 from app.db import query_one
 
 
+def normalize_role(role):
+    """Canonicalize legacy 'USER' role to 'CUSTOMER' for clean 3-role RBAC."""
+    val = (role or "").strip().upper()
+    if val == "USER":
+        return "CUSTOMER"
+    return val
+
+
 def _verify_active_session_user():
     """
     Verify that the session user exists and remains ACTIVE in the database.
@@ -31,7 +39,10 @@ def _verify_active_session_user():
         flash("Your session has ended because this account is inactive.", "danger")
         return None, redirect(url_for("auth.login"))
 
-    session["role"] = user["role"]
+    canonical_role = normalize_role(user["role"])
+    session["role"] = canonical_role
+    user = dict(user)
+    user["role"] = canonical_role
     return user, None
 
 
@@ -46,13 +57,18 @@ def login_required(f):
 
 
 def role_required(role):
+    if isinstance(role, (list, tuple, set)):
+        allowed_roles = {normalize_role(r) for r in role}
+    else:
+        allowed_roles = {normalize_role(role)}
+
     def decorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
             user, err_resp = _verify_active_session_user()
             if err_resp is not None:
                 return err_resp
-            if user["role"] != role:
+            if user["role"] not in allowed_roles:
                 if request.path.startswith("/api/"):
                     return jsonify({"error": "Forbidden. Insufficient role permissions."}), 403
                 abort(403)

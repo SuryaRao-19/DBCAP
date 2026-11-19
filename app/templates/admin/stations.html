@@ -8,6 +8,14 @@
     <div class="page-subtitle">Configure real NCR stations, import verified CSV batches, and approve hubs before publishing</div>
   </div>
   <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+    <form method="POST" action="{{ url_for('admin.sync_ocm') }}" style="display:inline;" onsubmit="return confirm('Fetch and synchronize genuine Open Charge Map POI records for Delhi NCR?');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="city" value="Delhi NCR">
+      <input type="hidden" name="max_results" value="25">
+      <button type="submit" class="btn btn-secondary" title="Fetch live POIs from Open Charge Map API v3">
+        🌐 Sync Open Charge Map
+      </button>
+    </form>
     <button class="btn btn-secondary" onclick="openModal('importCsvModal')">📥 Import CSV Batch</button>
     <button class="btn btn-primary" onclick="openModal('addStationModal')">+ Add New Station</button>
   </div>
@@ -123,6 +131,7 @@
                     data-opening="{{ s.opening_time }}"
                     data-closing="{{ s.closing_time }}"
                     data-status="{{ s.station_status }}"
+                    data-owner-id="{{ s.owner_user_id or '' }}"
                     onclick="openEditStationModal(this)">
               Edit
             </button>
@@ -134,6 +143,96 @@
       {% endfor %}
     </tbody>
   </table>
+</div>
+
+<!-- Verification Status Transitions & Station Identification QR Registry -->
+<div class="card mt-4 mb-4">
+  <div style="display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap; gap:1rem; margin-bottom:1rem;">
+    <div>
+      <h2 style="font-size:1.15rem; margin:0;">Station Verification Governance &amp; Identification QR Codes</h2>
+      <p class="text-muted" style="font-size:0.84rem; margin:0.25rem 0 0;">
+        Manage coordinate verification state and opaque Station Identification QR placards (static station links &mdash; distinct from Razorpay dynamic payment QRs).
+      </p>
+    </div>
+    <span class="integrity-pill integrity-verified">{{ stations|length }} Station Record(s)</span>
+  </div>
+
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>Station &amp; Coordinates</th>
+          <th>Verification Transition</th>
+          <th>QR Status &amp; Scan Telemetry</th>
+          <th>Download / Print / Token Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in stations %}
+          {% set qrow = station_qrs.get(s.station_id) if station_qrs else none %}
+          <tr>
+            <td>
+              <strong>{{ s.station_name }}</strong>
+              <div class="text-muted" style="font-size:0.78rem;">
+                {{ s.city }} &bull;
+                {% if s.latitude is not none and s.longitude is not none %}
+                  GPS: {{ "%.4f"|format(s.latitude) }}, {{ "%.4f"|format(s.longitude) }}
+                {% else %}
+                  <span style="color:var(--color-warning); font-weight:600;">Location verification pending.</span>
+                {% endif %}
+              </div>
+              <div style="font-size:0.74rem; color:var(--color-text-secondary);">
+                Slug: <code>{{ s.station_slug or ('station-' ~ s.station_id) }}</code> &bull;
+                Origin: <code>{{ s.record_origin or 'VERIFIED_PUBLIC_SOURCE' }}</code>
+              </div>
+            </td>
+            <td>
+              <form method="POST" action="{{ url_for('admin.verify_station_route', station_id=s.station_id) }}" style="display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <select name="verification_status" class="form-control" style="min-width:165px; padding:0.35rem 0.5rem; font-size:0.8rem;">
+                  {% for vst in valid_verification_statuses %}
+                    <option value="{{ vst }}" {% if (s.verification_status or 'VERIFIED') == vst %}selected{% endif %}>{{ vst }}</option>
+                  {% endfor %}
+                </select>
+                <button type="submit" class="btn btn-secondary btn-sm">Apply</button>
+              </form>
+            </td>
+            <td style="font-size:0.8rem;">
+              {% if qrow %}
+                <div>
+                  <span class="badge {% if qrow.qr_status == 'ACTIVE' %}bg-success{% else %}bg-danger{% endif %}">{{ qrow.qr_status }}</span>
+                  <strong style="margin-left:0.35rem;">{{ qrow.scan_count }} scan(s)</strong>
+                </div>
+                <div class="text-muted" style="font-size:0.74rem; margin-top:0.2rem;">
+                  Token: <code>{{ qrow.qr_token[:12] }}&hellip;</code>
+                  {% if qrow.last_scanned_at %}<br>Last scan: {{ qrow.last_scanned_at }}{% endif %}
+                </div>
+              {% else %}
+                <span class="text-muted">Auto-generated on print / view</span>
+              {% endif %}
+            </td>
+            <td>
+              <div style="display:flex; gap:0.35rem; flex-wrap:wrap; align-items:center;">
+                <a href="{{ url_for('admin.download_qr_png', station_id=s.station_id) }}" class="btn btn-secondary btn-sm" title="Download high-DPI PNG">PNG</a>
+                <a href="{{ url_for('admin.download_qr_svg', station_id=s.station_id) }}" class="btn btn-secondary btn-sm" title="Download vector SVG">SVG</a>
+                <a href="{{ url_for('admin.print_station_qr', station_id=s.station_id) }}" target="_blank" class="btn btn-primary btn-sm" title="Print Placard">Print</a>
+                <form method="POST" action="{{ url_for('admin.regenerate_qr_route', station_id=s.station_id) }}" style="display:inline;">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button type="submit" class="btn btn-secondary btn-sm" title="Rotate opaque token">Regenerate</button>
+                </form>
+                <form method="POST" action="{{ url_for('admin.revoke_qr_route', station_id=s.station_id) }}" style="display:inline;">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button type="submit" class="btn btn-danger btn-sm" title="Revoke active Station QR">Revoke</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+        {% else %}
+          <tr><td colspan="4" style="text-align:center;color:var(--color-text-secondary);">No stations available.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 
 <!-- Add Station Modal -->
@@ -152,7 +251,7 @@
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">City</label>
-          <input type="text" name="city" class="form-control" placeholder="e.g. New Delhi" required>
+          <input type="text" id="addStationCityInput" name="city" class="form-control" placeholder="e.g. New Delhi" required>
         </div>
         <div class="form-group">
           <label class="form-label">Operational Status</label>
@@ -162,6 +261,14 @@
             <option value="INACTIVE">INACTIVE</option>
           </select>
         </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Indian PIN Code Lookup Helper (Optional)</label>
+        <div style="display:flex; gap:0.5rem;">
+          <input type="text" id="addStationPinInput" maxlength="6" class="form-control" placeholder="e.g. 110001">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="window.EVGeoWidget && window.EVGeoWidget.lookupIndianPin('addStationPinInput', 'addStationPinResult', 'addStationCityInput')">Verify PIN</button>
+        </div>
+        <div id="addStationPinResult" style="margin-top:0.45rem;"></div>
       </div>
       <div class="form-group">
         <label class="form-label">Full Address</label>
@@ -226,6 +333,15 @@
           <input type="time" id="edit_closing_time" name="closing_time" class="form-control" required>
         </div>
       </div>
+      <div class="form-group">
+        <label class="form-label">Assigned Station Partner (Owner)</label>
+        <select id="edit_owner_user_id" name="owner_user_id" class="form-control">
+          <option value="">No Partner Assigned (Platform Managed)</option>
+          {% for o in owners %}
+            <option value="{{ o.user_id }}">{{ o.full_name }} ({{ o.email }})</option>
+          {% endfor %}
+        </select>
+      </div>
       <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
         <button type="button" class="btn btn-secondary" onclick="closeModal('editStationModal')">Cancel</button>
         <button type="submit" class="btn btn-primary">Save Changes</button>
@@ -244,6 +360,7 @@
     document.getElementById('edit_opening_time').value = d.opening ? d.opening.substring(0, 5) : '06:00';
     document.getElementById('edit_closing_time').value = d.closing ? d.closing.substring(0, 5) : '23:00';
     document.getElementById('edit_station_status').value = d.status;
+    document.getElementById('edit_owner_user_id').value = d.ownerId || '';
     openModal('editStationModal');
   }
 </script>
@@ -276,5 +393,9 @@
     </form>
   </div>
 </div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/ev_geo_weather.js') }}"></script>
 {% endblock %}
 

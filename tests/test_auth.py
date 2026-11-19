@@ -17,11 +17,17 @@ def test_valid_admin_login():
 
 
 def test_valid_owner_login():
-    """Verify EV owner authentication with correct credentials."""
+    """Verify EV customer driver and station partner authentication with correct credentials."""
     user, err = authenticate_user("aarav@example.com", "Owner@123")
     assert err is None
     assert user is not None
-    assert user["role"] == "OWNER"
+    assert user["role"] == "CUSTOMER"
+
+    # Also verify station partner (OWNER) login
+    partner, p_err = authenticate_user("owner.station01@example.test", "Partner@123")
+    assert p_err is None
+    assert partner is not None
+    assert partner["role"] == "OWNER"
 
 
 def test_invalid_password_rejection():
@@ -44,7 +50,7 @@ def test_user_registration_and_login():
     # Cleanup previous test run if present
     execute("DELETE FROM Users WHERE email = %s", (test_email,))
 
-    uid, err = register_user("Test New Driver", test_email, "9876543210", "SecurePass@2026", "OWNER")
+    uid, err = register_user("Test New Driver", test_email, "9876543210", "SecurePass@2026", "CUSTOMER")
     assert err is None
     assert uid is not None
 
@@ -52,6 +58,7 @@ def test_user_registration_and_login():
     user, auth_err = authenticate_user(test_email, "SecurePass@2026")
     assert auth_err is None
     assert user["user_id"] == uid
+    assert user["role"] == "CUSTOMER"
 
     # Clean up
     execute("DELETE FROM Users WHERE user_id = %s", (uid,))

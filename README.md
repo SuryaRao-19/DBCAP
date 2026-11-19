@@ -1,38 +1,31 @@
-# EV Charging Station Management System (EV ChargeNet)
+# EZ Charge Network Portal — Tata Power EZ Charge Reference Demo (EV ChargeNet)
 
-A full-stack EV Charging Network & Station Management web application built with **Python Flask**, **MySQL 8.0+**, **Jinja2**, **Web3Forms**, and **Vercel Serverless** deployment readiness.
-
----
-
-## Core Features
-
-### Public & Contact Portal
-- **Station Discovery & Interactive NCR Map (`/`, `/stations`, `/stations/<id>`, `/api/stations/map`)**: Explore 14 verified Delhi NCR hubs inspired by Tata Power EZ Charge (`New Delhi`, `Gurugram`, `Noida`, `Greater Noida`, `Faridabad`, `Ghaziabad`), filter by city/connector/charging speed, sort *"Near Me"* via browser geolocation, and render pins dynamically on Google Maps JS API or automatic Leaflet.js/OpenStreetMap fallback.
-- **Transparency & Verification Pages (`/about`, `/data-sources`)**: Explicit independent academic platform disclosure, Tata Power EZ Charge reference profile & social links, and a live MySQL `DataSources` register distinguishing `VERIFIED`, `DEMO`, `ESTIMATED`, and `UNAVAILABLE` metrics.
-- **Web3Forms Contact & Enquiry Portal (`/contact`)**: CSRF-protected enquiry form with client/server validation, honeypot spam filter, DB-backed rate limiting & duplicate submission lock, resilient MySQL backup storage (`ContactMessages`), and Web3Forms backend API forwarding.
-
-### EV Owner Portal (`/owner/*`)
-- **Vehicle Fleet Management (`/owner/vehicles`)**: Register, edit, and delete EVs with strict user ownership checks.
-- **Slot Reservations (`/owner/bookings`, `/owner/book/<point_id>`)**: Real-time overlap checking (`/api/check-overlap`) backed by DB trigger `trg_booking_before_insert`, plus live estimated charging duration, kWh, and tariff preview.
-- **Live Charging Simulation & Razorpay TEST MODE Checkout (`/owner/charging`, `/owner/checkout/<session_id>`, `/owner/session/<id>/download`)**: Atomic row-locked session start (`start_session`), stored procedure completion (`CompleteChargingSession` + `CalculateChargingCost`), dedicated Razorpay Test Mode Standard Checkout with 18% GST invoice breakdown, server-side HMAC-SHA256 signature verification (`/api/payments/razorpay/order`, `/api/payments/razorpay/verify`, `/api/payments/razorpay/sandbox-complete`), idempotent webhook ingestion (`/api/payments/razorpay/webhook` -> `PaymentWebhookEvents`), and strict live-key guardrail (`rzp_live_*` blocked), plus simulated ledger fallback (`DEMO PAYMENT — NO REAL MONEY WILL BE CHARGED`) and printable/downloadable `.txt` receipts.
-
-### Administrator Portal (`/admin/*`)
-- **Operations Dashboard, Sidebar & Real-Time Analytics (`/admin/dashboard`, `/admin/reports`)**: Collapsible fixed sidebar navigation (`Operations` + `Administration`), real MySQL-backed Chart.js visualizations (city hub capacity, monthly reservations, connector mix, payment ledger outcomes), utilization metrics, and CSV export.
-- **Station Directory, CSV Import & Approval Workflow (`/admin/stations`, `/admin/points`)**: Manage station geospatial metadata, bulk-import CSV station lists with coordinate/PIN/source validation, and review `PENDING_APPROVAL` hubs before public publishing.
-- **Data Governance (`/admin/data-sources`)**: Manage `DataSources` verification classifications (`VERIFIED`, `DEMO`, `ESTIMATED`, `UNAVAILABLE`).
-- **User Governance & Audit Trail (`/admin/users`, `/admin/audit-logs`)**: Create `ADMIN` or `OWNER` accounts securely (`POST /admin/users/create`), toggle `ACTIVE`/`INACTIVE` access (immediately enforced per request), and update `SystemSettings`.
-- **Enquiry Triage (`/admin/enquiries`)**: View Contact Us submissions, track Web3Forms `SENT`/`FAILED`/`PENDING` status, and transition enquiries (`NEW`, `IN_PROGRESS`, `RESOLVED`).
-- **Portable System Health (`/admin/system-health`)**: Live MySQL diagnostics using `DATABASE()`.
+> **Independent Academic Demonstration Notice:** This application is an independently developed academic demonstration built on the **EV ChargeNet** Flask + MySQL 8.0+ engine using publicly available **Tata Power EZ Charge** reference information. It is **not** an official Tata Power application and cannot control real charging hardware or process live commercial payments.
 
 ---
 
-## Security & Architecture Highlights
-- **Role-Based Access Control (RBAC)**: Public registration (`/register`) exclusively creates `OWNER` accounts (`allow_admin=False`); only authenticated `ADMIN` accounts can provision new administrators.
-- **IDOR & Transaction Protection**: All booking, session, payment, receipt, and vehicle mutations verify resource ownership and use parameterized SQL + InnoDB row locking (`SELECT ... FOR UPDATE`).
-- **CSRF & Hardened Sessions**: Global `Flask-WTF` `CSRFProtect`, `HttpOnly`, `SameSite=Lax`, and production `Secure` cookies, plus environment-driven secrets (`SECRET_KEY`, `DATABASE_URL`, `WEB3FORMS_ACCESS_KEY`) with production fail-fast checks.
-- **Connection Pooling**: `DBUtils.PooledDB` (`app/db.py`) with `ping=1`, TLS/SSL support, and serverless connection limits.
+## Core Platform Capabilities
 
-> **Note on Payment Handling**: Checkout & session billing in `Payments` operate exclusively in **Razorpay Test Mode / Simulated Financial Ledger** for academic demonstration (zero live merchant charges; `rzp_live_*` keys are blocked).
+### 1. Public Website & Interactive Discovery (`/`, `/stations`, `/station/<slug>`, `/about`, `/data-sources`, `/contact`, `/privacy`, `/terms`)
+- **Oct 12, 2026 Press Release Baseline + Historical Conflict Note (`/`)**: Displays verified Tata Power EZ Charge figures (`6,700+` charging points, `2.5 lakh+` home chargers, `1,200+` e-bus points, `7 lakh+` customers, `700+` cities) alongside source links, publication dates, and explicit scope reconciliation notes vs earlier `5,500+` / `620+` corporate disclosures.
+- **Coordinate-Verified Station Directory & Interactive Map (`/stations`, `/api/stations/map`)**: Distinguishes coordinate-verified stations (including Dr. Ambedkar International Centre at 15 Janpath, plus curated NCR hubs) from press-release candidate hubs (`PENDING_VERIFICATION`, `latitude=NULL`, `longitude=NULL`) which show `"Location verification pending."` and never plot as fake map pins. Supports Google Maps JavaScript API (+ Places) with automatic zero-key Leaflet.js + OpenStreetMap fallback.
+- **4 Charging Solutions & Official Ecosystem**: Home Charging, Public Charging, Workplace/Fleet Charging, and E-Bus Depot Charging, plus official Android (`com.tatapower.evapp`), Apple App Store (`id1496350476`), Linktree, and verified Tata Power social handles (`@tatapower`, `@TataPowerCompanyLtd`).
+- **Web3Forms Contact & Enquiry Proxy (`/contact`)**: CSRF-protected backend proxy with input sanitization, honeypot field, DB rate limiting & deduplication, MySQL backup persistence (`ContactMessages`), and Web3Forms API delivery.
+
+### 2. Dual QR Architecture
+- **A. Station Identification QR (`StationQRCodes` + `app/services/qr_service.py`)**:
+  - Static physical placard QR encoding an opaque non-PII token (`/qr/station/<token>`).
+  - Public scan endpoint increments `scan_count` & `last_scanned_at` and redirects to `/station/<slug>`.
+  - Admin controls (`/admin/stations`): Generate, Regenerate (auto-revoking old token -> HTTP `410 Gone`), Revoke, download high-DPI PNG, download vector SVG, and open printable signage (`/admin/stations/<id>/qr/print`).
+- **B. Dynamic Payment QR & Razorpay TEST MODE (`/owner/checkout/<session_id>`, `/api/payments/razorpay/qr`)**:
+  - Single-use dynamic invoice QR bound strictly to server-computed `ChargingSessions.total_cost` (including 18% GST) with a 10-minute `qr_expires_at` TTL.
+  - Strict `rzp_live_*` key blocker; scanning the payment QR **never** marks a payment `SUCCESS` — settlement requires Razorpay HMAC-SHA256 verification (`/api/payments/razorpay/verify`, `/sandbox-complete`) or signed webhook delivery (`/api/payments/razorpay/webhook`).
+
+### 3. Unified Dark EV UI, Google OAuth 2.0 & Role-Separated Dashboards (`/admin/*`, `/owner/*`, `/login`, `/register`)
+- **Unified Deep Midnight Navy Design System**: Consistent dark EV theme (`#0B1220` / `#111C2E` / `#162338` / `#00D6A0` / `#00C8FF`) across Public views, Auth pages, EV Owner Console, and Admin Workspace, with synchronous pre-paint collapsed sidebar state eliminating navigation flicker.
+- **Server-Side Google OAuth 2.0 / OIDC + Local Auth**: Authlib Google Sign-In (`/auth/google/login`, `/auth/google/callback`) with `state` + `nonce` validation, safe account linking, password visibility toggles, `/forgot-password` timed token reset, and `bfcache` CSRF token refresh (`GET /auth/csrf-token`). See [`docs/GOOGLE_OAUTH_SETUP.md`](./docs/GOOGLE_OAUTH_SETUP.md).
+- **Admin Governance & 8 Chart.js Analytics (`/admin/dashboard`)**: Strictly separates Type A Official Reference metrics, Type B Demo telemetry (`@example.test`), and Type C Live Portal records across 8 dark-themed MySQL charts, Station Verification transitions, CSV import, User provisioning, Audit Logs, System Settings, and System Health.
+- **EV Owner Console (`/owner/dashboard`, `/owner/vehicles`, `/owner/bookings`, `/owner/charging`)**: Fleet CRUD, trigger-validated slot booking (`/api/check-overlap`), stored-procedure charging simulation (`CompleteChargingSession`), downloadable `.txt` receipts, and `"Simulated earnings — not actual company revenue."` disclosures.
 
 ---
 
@@ -40,72 +33,45 @@ A full-stack EV Charging Network & Station Management web application built with
 
 ```text
 DBCAP/
-├── api/
-│   └── index.py                  # Vercel Python WSGI entrypoint
+├── api/index.py                  # Vercel Python serverless WSGI entrypoint
 ├── app/
-│   ├── __init__.py               # Flask app factory, CSRF, hardened sessions, blueprints
-│   ├── db.py                     # PooledDB connection manager, DATABASE_URL & SSL parser
+│   ├── __init__.py               # App factory, CSRFProtect, hardened session cookies
+│   ├── db.py                     # DBUtils.PooledDB MySQL 8.0+ pool & TLS parser
 │   ├── routes/                   # public, auth, owner, admin, api, auth_middleware
-│   ├── services/                 # auth, station, booking, session, payment, report, audit, contact
-│   ├── static/                   # CSS & JS assets (main.js CSRF helper)
-│   └── templates/                # Jinja2 HTML views (public, auth, owner, admin)
+│   ├── services/                 # platform, qr_service, razorpay_service, station, booking, session, payment, report, audit, contact
+│   ├── static/                   # CSS, JS (ev_map.js, main.js), local EV photography & SVG logo
+│   └── templates/                # Jinja2 views (public, qr_status, privacy/terms, owner, admin)
 ├── database/
-│   ├── 01_schema.sql             # Core 3NF InnoDB tables + ContactMessages
+│   ├── 01_schema.sql             # 3NF InnoDB tables
 │   ├── 02_constraints_indexes.sql
-│   ├── 03_routines_triggers.sql  # CalculateChargingCost, CompleteChargingSession, triggers
-│   ├── 04_demo_data.sql          # Optional staging/demo dataset
-│   └── migrations/               # Non-destructive ordered SQL migrations (001–005)
-├── docs/
-│   ├── SECURITY.md
-│   ├── DATABASE_SETUP.md
-│   ├── DATA_VERIFICATION_REPORT.md
-│   ├── WEB3FORMS_SETUP.md
-│   ├── VERCEL_DEPLOYMENT.md
-│   ├── PRODUCTION_CHECKLIST.md
-│   └── deployment.md
+│   ├── 03_routines_triggers.sql  # CalculateChargingCost, CompleteChargingSession, overlap triggers
+│   └── migrations/               # Ordered idempotent migrations (001–006)
+├── docs/                         # Architecture, Provenance, Station Verification, Dual QR, Setup & Test Reports
 ├── tests/                        # Automated pytest verification suite
-├── .env.example                  # Placeholder environment variable template
-├── init_db.py                    # Cross-platform pure-Python DB initializer & migrator
-├── requirements.txt
-├── run.py                        # Local development runner
-└── vercel.json                   # Vercel serverless configuration
+├── .env.example                  # Non-secret environment contract
+├── init_db.py                    # Pure-Python MySQL initializer & migration runner
+└── vercel.json                   # Vercel serverless routing config
 ```
 
 ---
 
-## Local Quickstart
+## Quickstart & Commands
 
-1. **Create environment & install dependencies**
-   ```bash
-   python -m venv .venv
-   # Windows PowerShell: .\.venv\Scripts\Activate.ps1
-   # Linux/macOS: source .venv/bin/activate
-   pip install -r requirements.txt
-   ```
-2. **Configure environment variables**
-   Copy `.env.example` to `.env` and fill in your local MySQL credentials, `SECRET_KEY`, and `WEB3FORMS_ACCESS_KEY`.
-3. **Initialize or migrate MySQL 8.0+ database**
-   ```bash
-   # Non-destructive migration (preserves existing data):
-   python init_db.py --mode migrate
+```bash
+# 1. Install Python dependencies
+pip install -r requirements.txt
 
-   # Fresh database creation (with optional demo data):
-   python init_db.py --mode full --seed-demo
-   ```
-4. **Run the test suite**
-   ```bash
-   python -m pytest -v
-   ```
-5. **Start the local server**
-   ```bash
-   python run.py
-   ```
+# 2. Configure environment variables (.env from .env.example)
+cp .env.example .env
 
----
+# 3. Apply idempotent database migrations (creates/upgrades all 21 MySQL tables incl. Migration 008)
+python init_db.py --mode migrate
 
-## Documentation
-- **Security Hardening**: [`docs/SECURITY.md`](docs/SECURITY.md)
-- **Managed MySQL & Migrations**: [`docs/DATABASE_SETUP.md`](docs/DATABASE_SETUP.md)
-- **Web3Forms Setup**: [`docs/WEB3FORMS_SETUP.md`](docs/WEB3FORMS_SETUP.md)
-- **Vercel Deployment Walkthrough**: [`docs/VERCEL_DEPLOYMENT.md`](docs/VERCEL_DEPLOYMENT.md)
-- **Pre-Launch Checklist**: [`docs/PRODUCTION_CHECKLIST.md`](docs/PRODUCTION_CHECKLIST.md)
+# 4. Run development server
+python run.py
+
+# 5. Execute automated test suite
+python -m pytest -v
+```
+
+For full details on integrated free public APIs (Open Charge Map, OpenStreetMap/Nominatim, OSRM, Open-Meteo, India Post PIN API, ChargeAlong exclusion) and 4-way provenance rules, see [`docs/FREE_APIS_INTEGRATION.md`](./docs/FREE_APIS_INTEGRATION.md).

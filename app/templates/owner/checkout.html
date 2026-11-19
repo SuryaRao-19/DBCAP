@@ -88,6 +88,36 @@
       <div style="font-size:0.75rem; color:var(--text-dim); margin-top:0.85rem; text-align:center;">
         Server-enforced amount validation &bull; Signature verified via SHA-256 HMAC &bull; No real bank debits
       </div>
+
+      <!-- Dynamic Payment QR Section (10-min TTL + EXPIRED + Retry) -->
+      <div id="dynamicPaymentQrPanel" class="card mt-3" style="padding:1rem; background:rgba(11,18,32,0.55); border:1px dashed var(--border-color);">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.45rem;">
+          <strong><i class="fa-solid fa-qrcode"></i> Dynamic Payment QR (Test Mode)</strong>
+          <span class="badge bg-warning">10-MIN EXPIRY</span>
+        </div>
+        <p class="text-muted" style="font-size:0.79rem; margin-bottom:0.7rem;">
+          Single-use invoice QR bound to Session #{{ checkout.session_id }} (₹{{ "%.2f"|format(checkout.breakdown.total_amount) }}).
+          <strong>Scanning does NOT complete payment</strong> &mdash; backend Razorpay webhook or signature verification settles the ledger.
+        </p>
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">
+          <button type="button" id="generatePayQrBtn" class="btn btn-secondary btn-sm" onclick="generateDynamicPaymentQr()">
+            Generate Dynamic Payment QR
+          </button>
+          <span id="qrTimerBadge" class="text-muted" style="font-size:0.8rem; font-weight:600;"></span>
+        </div>
+        <div id="dynamicQrDisplay" style="display:none; margin-top:0.85rem; text-align:center;">
+          <div style="display:inline-block; background:#FFFFFF; padding:0.75rem; border-radius:10px;">
+            <img id="dynamicQrImg" src="" alt="Dynamic Payment QR Code" style="width:184px; height:184px; display:block;">
+          </div>
+          <div id="dynamicQrMeta" class="text-muted" style="font-size:0.78rem; margin-top:0.5rem;"></div>
+          <div id="qrExpiredActions" style="display:none; margin-top:0.65rem;">
+            <span class="badge bg-danger">EXPIRED</span>
+            <button type="button" class="btn btn-primary btn-sm" onclick="generateDynamicPaymentQr()" style="margin-left:0.4rem;">
+              Retry &amp; Regenerate QR
+            </button>
+          </div>
+        </div>
+      </div>
     {% endif %}
   </div>
 </div>
@@ -118,7 +148,7 @@ async function startRazorpayTestCheckout() {
   setCheckoutStatus('Creating server-validated Razorpay TEST order...', true);
 
   try {
-    const orderRes = await fetch('/api/payments/razorpay/order', {
+    const orderRes = await csrfFetch('/api/payments/razorpay/order', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -147,7 +177,7 @@ async function startRazorpayTestCheckout() {
         theme: { color: '#00C985' },
         handler: async function (response) {
           setCheckoutStatus('Verifying Razorpay signature on server...', true);
-          const verifyRes = await fetch('/api/payments/razorpay/verify', {
+          const verifyRes = await csrfFetch('/api/payments/razorpay/verify', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken() },
             body: JSON.stringify({
@@ -177,7 +207,7 @@ async function startRazorpayTestCheckout() {
       new Razorpay(options).open();
     } else {
       setCheckoutStatus(`Order ${order.order_id} created. Verifying HMAC test signature on server...`, true);
-      const sbRes = await fetch('/api/payments/razorpay/sandbox-complete', {
+      const sbRes = await csrfFetch('/api/payments/razorpay/sandbox-complete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken() },
         body: JSON.stringify({
@@ -196,6 +226,69 @@ async function startRazorpayTestCheckout() {
   } catch (err) {
     setCheckoutStatus(err.message || 'Checkout failed.', false);
     btn.disabled = false;
+  }
+}
+
+let qrTimerInterval = null;
+
+async function generateDynamicPaymentQr() {
+  const btn = document.getElementById('generatePayQrBtn');
+  const display = document.getElementById('dynamicQrDisplay');
+  const img = document.getElementById('dynamicQrImg');
+  const meta = document.getElementById('dynamicQrMeta');
+  const timerBadge = document.getElementById('qrTimerBadge');
+  const expiredActions = document.getElementById('qrExpiredActions');
+
+  if (!btn) return;
+  btn.disabled = true;
+  btn.textContent = 'Generating QR...';
+  expiredActions.style.display = 'none';
+
+  try {
+    const res = await csrfFetch('/api/payments/razorpay/qr', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken() },
+      body: JSON.stringify({ session_id: SESSION_ID }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'Could not generate Dynamic Payment QR.');
+    }
+
+    const qr = data.qr;
+    img.src = qr.qr_image_data_uri;
+    img.style.opacity = '1';
+    display.style.display = 'block';
+    meta.textContent = `QR ID: ${qr.payment_qr_id} • Order: ${qr.order_id} • Mode: ${qr.qr_mode}`;
+
+    let remaining = Number(qr.ttl_seconds || 600);
+    if (qrTimerInterval) clearInterval(qrTimerInterval);
+
+    const updateTimer = () => {
+      if (remaining <= 0) {
+        clearInterval(qrTimerInterval);
+        timerBadge.textContent = 'QR EXPIRED';
+        timerBadge.style.color = '#F43F5E';
+        img.style.opacity = '0.28';
+        expiredActions.style.display = 'block';
+        setCheckoutStatus('Dynamic Payment QR expired before settlement. Please generate a fresh QR or checkout order.', false);
+        return;
+      }
+      const mins = String(Math.floor(remaining / 60)).padStart(2, '0');
+      const secs = String(remaining % 60).padStart(2, '0');
+      timerBadge.textContent = `Expires in ${mins}:${secs}`;
+      timerBadge.style.color = remaining <= 60 ? '#F59E0B' : '#00C985';
+      remaining -= 1;
+    };
+
+    updateTimer();
+    qrTimerInterval = setInterval(updateTimer, 1000);
+    setCheckoutStatus(`Dynamic Payment QR ${qr.payment_qr_id} ready (awaiting webhook or HMAC settlement — scanning alone does not mark paid).`, true);
+  } catch (err) {
+    setCheckoutStatus(err.message || 'Dynamic QR generation failed.', false);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Regenerate Dynamic QR';
   }
 }
 </script>

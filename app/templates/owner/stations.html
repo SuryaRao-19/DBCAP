@@ -1,88 +1,72 @@
 {% extends "base.html" %}
-{% block title %}Browse Charging Stations - EV ChargeNet{% endblock %}
+{% block title %}My Stations — Partner Console — EZ Charge Network Portal{% endblock %}
 
 {% block content %}
-<div class="page-header">
-  <div class="page-header-title">
-    <h1>Find EV Charging Stations</h1>
-    <div class="page-subtitle">Locate public charging stations, check live dispenser availability, and reserve charging slots</div>
+<div class="page-header" style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:1rem; margin-bottom:1.75rem;">
+  <div>
+    <h1 style="margin:0 0 0.35rem 0;">My Charging Stations</h1>
+    <p class="page-subtitle" style="margin:0;">
+      Hubs assigned to your partner account. You can update operating hours, contact phone numbers, and inspect dispensers.
+    </p>
   </div>
 </div>
 
-<!-- Search & City Filter Bar -->
-<div class="card" style="margin-bottom: 2rem; padding: 1rem 1.5rem;">
-  <form method="GET" action="{{ url_for('owner.stations') }}" style="display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap;">
-    <div style="flex: 2; min-width: 220px;">
-      <label class="form-label" style="font-size: 0.75rem;">FILTER BY CITY</label>
-      <input type="text" name="city" class="form-control" placeholder="Search city (e.g. New Delhi, Gurugram, Noida)..." value="{{ selected_city or '' }}">
-    </div>
-    <button type="submit" class="btn btn-primary btn-sm">Filter Stations</button>
-    <a href="{{ url_for('owner.stations') }}" class="btn btn-secondary btn-sm">Clear Filter</a>
-  </form>
-</div>
-
-<!-- Stations List -->
-<div style="display: flex; flex-direction: column; gap: 1.5rem;">
-  {% for s in stations %}
-    <div class="card">
-      <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.25rem;">
+{% if stations %}
+  <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(360px, 1fr)); gap:1.25rem;">
+    {% for st in stations %}
+      <div class="card" style="display:flex; flex-direction:column; justify-content:space-between;">
         <div>
-          <div style="display: flex; align-items: center; gap: 0.75rem;">
-            <h2 style="margin-bottom: 0;">{{ s.station_name }}</h2>
-            <span class="badge badge-{{ s.station_status.lower() }}">{{ s.station_status }}</span>
-          </div>
-          <p style="color: var(--text-muted); font-size: 0.9rem; margin-top: 0.25rem;">
-            📍 {{ s.address }}, <strong>{{ s.city }}</strong> &bull; Operating Hours: {{ s.opening_time }} - {{ s.closing_time }}
-          </p>
-        </div>
-        <div style="text-align: right;">
-          <span style="font-weight: 800; color: #34d399; font-size: 1.1rem;">{{ s.available_points }}</span>
-          <span style="font-size: 0.85rem; color: var(--text-muted);">of {{ s.total_points }} points available</span>
-        </div>
-      </div>
-
-      <!-- Dispensers Inside Station -->
-      <div style="border-top: 1px solid var(--border-color); padding-top: 1.25rem;">
-        <div style="font-size: 0.8rem; font-weight: 700; color: var(--text-dim); text-transform: uppercase; margin-bottom: 0.85rem; letter-spacing: 0.05em;">
-          Charging Points at this Hub
-        </div>
-        <div class="grid-cols-2" style="margin-bottom: 0; gap: 1rem;">
-          {% for p in points if p.station_id == s.station_id %}
-            <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1rem; display: flex; justify-content: space-between; align-items: center;">
-              <div>
-                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
-                  <span style="font-weight: 800; color: var(--accent-emerald);">{{ p.point_code }}</span>
-                  <span style="font-size: 0.75rem; font-weight: 700; background: rgba(255,255,255,0.06); padding: 0.15rem 0.4rem; border-radius: var(--radius-sm);">
-                    {{ p.connector_type }}
-                  </span>
-                  <span class="badge badge-{{ p.point_status.lower() }}" style="font-size: 0.7rem;">{{ p.point_status }}</span>
-                </div>
-                <div style="font-size: 0.825rem; color: var(--text-muted);">
-                  Max: <strong>{{ p.max_power_kw }} kW</strong> &bull; Tariff: <strong style="color:#34d399;">₹{{ "%.2f"|format(p.tariff_per_kwh) }}/kWh</strong>
-                </div>
-              </div>
-
-              <div>
-                {% if p.point_status == 'AVAILABLE' and s.station_status == 'ACTIVE' %}
-                  <a href="{{ url_for('owner.book_slot', point_id=p.point_id) }}" class="btn btn-primary btn-sm">
-                    Book Slot
-                  </a>
-                {% else %}
-                  <button class="btn btn-secondary btn-sm" disabled style="opacity: 0.5; cursor: not-allowed;">
-                    Unavailable
-                  </button>
-                {% endif %}
-              </div>
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:0.75rem;">
+            <div>
+              <span class="badge badge-secondary" style="font-size:0.72rem;">{{ st.operator_name or 'Tata Power EZ Charge' }}</span>
+              <h3 style="margin:0.25rem 0 0 0; font-size:1.2rem;">{{ st.station_name }}</h3>
             </div>
-          {% endfor %}
+            <span class="badge {% if st.station_status == 'ACTIVE' %}badge-success{% else %}badge-warning{% endif %}">
+              {{ st.station_status }}
+            </span>
+          </div>
+
+          <p style="font-size:0.85rem; color:var(--text-dim); margin:0 0 1rem 0; line-height:1.4;">
+            📍 {{ st.address }}, {{ st.city }}
+          </p>
+
+          <div style="padding:0.75rem; border-radius:8px; background:rgba(255,255,255,0.02); border:1px solid var(--color-border); font-size:0.85rem; margin-bottom:1rem;">
+            <div style="display:flex; justify-content:space-between; margin-bottom:0.35rem;">
+              <span style="color:var(--text-dim);">Operating Hours:</span>
+              <span>{{ st.opening_time or '24/7' }} - {{ st.closing_time or '' }}</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; margin-bottom:0.35rem;">
+              <span style="color:var(--text-dim);">On-site Phone:</span>
+              <span>{{ st.contact_phone or 'N/A' }}</span>
+            </div>
+            <div style="display:flex; justify-content:space-between;">
+              <span style="color:var(--text-dim);">Dispensers Online:</span>
+              <strong>{{ st.total_points }} ({{ st.available_points or 0 }} available)</strong>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap; padding-top:0.75rem; border-top:1px solid var(--color-border);">
+          <a href="{{ url_for('owner.station_edit', station_id=st.station_id) }}" class="btn btn-primary btn-sm" style="flex:1; text-align:center;">
+            Edit Station Settings
+          </a>
+          <a href="{{ url_for('owner.points') }}" class="btn btn-secondary btn-sm">
+            Dispensers
+          </a>
         </div>
       </div>
-    </div>
-  {% else %}
-    <div class="card" style="text-align: center; padding: 3rem;">
-      <h3>No Charging Stations Found</h3>
-      <p style="color: var(--text-muted); margin-top: 0.5rem;">Try adjusting your city filter or clearing the search terms.</p>
-    </div>
-  {% endfor %}
-</div>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="card" style="text-align:center; padding:3.5rem 1rem;">
+    <div style="font-size:2.5rem; margin-bottom:1rem;">📍⚡</div>
+    <h3 style="margin:0 0 0.5rem 0;">No Stations Linked to Your Account</h3>
+    <p style="color:var(--text-dim); max-width:440px; margin:0 auto 1.5rem auto;">
+      Once platform administration approves your location application or assigns a station, it will appear here for full operational control.
+    </p>
+    <a href="{{ url_for('owner.apply') }}" class="btn btn-primary">
+      Submit a Station Application
+    </a>
+  </div>
+{% endif %}
 {% endblock %}

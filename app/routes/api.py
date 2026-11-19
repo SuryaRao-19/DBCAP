@@ -11,10 +11,21 @@ from app.services.session_service import get_active_session_for_user, complete_s
 from app.services.payment_service import record_payment
 from app.services.razorpay_service import (
     create_razorpay_order,
+    create_dynamic_payment_qr,
     verify_and_settle_razorpay_payment,
     generate_sandbox_payment_proof,
     process_razorpay_webhook,
 )
+from app.services.geo_service import (
+    geocode_address,
+    reverse_geocode,
+    calculate_route,
+    find_nearby_stations,
+)
+from app.services.weather_service import get_station_weather
+from app.services.pincode_service import lookup_indian_pincode
+from app.services.qr_service import resolve_any_qr_token
+from app.services.customer_service import toggle_saved_station, is_station_saved
 from app.db import query_one
 
 api_bp = Blueprint("api", __name__)
@@ -200,6 +211,8 @@ def stations_map_feed():
     for s in stations:
         if s["latitude"] is None or s["longitude"] is None:
             continue
+        if s.get("verification_status") in ("PENDING_VERIFICATION", "PENDING_REVIEW", "OUTDATED"):
+            continue
         if city and s["city"].lower() != city.lower():
             continue
         st_pts = pts_map.get(s["station_id"], [])
@@ -246,22 +259,42 @@ def stations_map_feed():
 
 
 @api_bp.route("/payments/razorpay/order", methods=["POST"])
+@api_bp.route("/payments/razorpay/create-order", methods=["POST"])
 @login_required
 def razorpay_create_order():
     """Create a server-calculated Razorpay TEST MODE order strictly owned by the logged-in user."""
     user_id = get_current_user_id()
     data = request.get_json(silent=True) or {}
     session_id = data.get("session_id")
+    booking_id = data.get("booking_id")
     payment_method = data.get("payment_method", "UPI")
 
-    if not session_id:
-        return jsonify({"success": False, "error": "Session ID is required."}), 400
+    if not session_id and not booking_id:
+        return jsonify({"success": False, "error": "Either Session ID or Booking ID is required."}), 400
 
-    order, err = create_razorpay_order(session_id, user_id, payment_method=payment_method)
+    order, err = create_razorpay_order(session_id=session_id, user_id=user_id, payment_method=payment_method, booking_id=booking_id)
     if err:
         return jsonify({"success": False, "error": err}), _error_status_from_message(err)
 
     return jsonify({"success": True, "mode": "TEST_MODE", "order": order}), 201
+
+
+@api_bp.route("/payments/razorpay/qr", methods=["POST"])
+@login_required
+def razorpay_create_dynamic_qr():
+    """Generate a single-use Dynamic Payment QR attempt bound to server session or booking total with expiry."""
+    user_id = get_current_user_id()
+    data = request.get_json(silent=True) or {}
+    session_id = data.get("session_id")
+    booking_id = data.get("booking_id")
+    if not session_id and not booking_id:
+        return jsonify({"success": False, "error": "Either Session ID or Booking ID is required."}), 400
+
+    qr_data, err = create_dynamic_payment_qr(session_id=session_id, user_id=user_id, payment_method="UPI", booking_id=booking_id)
+    if err:
+        return jsonify({"success": False, "error": err}), _error_status_from_message(err)
+
+    return jsonify({"success": True, "mode": "TEST_MODE", "qr": qr_data}), 201
 
 
 @api_bp.route("/payments/razorpay/verify", methods=["POST"])
@@ -271,12 +304,13 @@ def razorpay_verify_payment():
     user_id = get_current_user_id()
     data = request.get_json(silent=True) or {}
     session_id = data.get("session_id")
+    booking_id = data.get("booking_id")
     order_id = data.get("razorpay_order_id", "")
     payment_id = data.get("razorpay_payment_id", "")
     signature = data.get("razorpay_signature", "")
     method = data.get("payment_method", "UPI")
 
-    if not all([session_id, order_id, payment_id, signature]):
+    if not order_id or not payment_id or not signature:
         return jsonify({"success": False, "error": "Missing Razorpay order, payment ID, or signature."}), 400
 
     settled, err = verify_and_settle_razorpay_payment(
@@ -286,6 +320,7 @@ def razorpay_verify_payment():
         razorpay_payment_id=payment_id,
         razorpay_signature=signature,
         payment_method=method,
+        booking_id=booking_id,
     )
     if err:
         return jsonify({"success": False, "error": err}), _error_status_from_message(err)
@@ -307,10 +342,11 @@ def razorpay_sandbox_complete():
     user_id = get_current_user_id()
     data = request.get_json(silent=True) or {}
     session_id = data.get("session_id")
+    booking_id = data.get("booking_id")
     order_id = data.get("razorpay_order_id", "")
     method = data.get("payment_method", "UPI")
 
-    if not session_id or not str(order_id).startswith("order_sim_"):
+    if not str(order_id).startswith("order_sim_"):
         return jsonify({"success": False, "error": "Sandbox completion applies only to local test orders (order_sim_*)."}), 400
 
     sim_pay_id, sim_sig = generate_sandbox_payment_proof(order_id)
@@ -321,6 +357,7 @@ def razorpay_sandbox_complete():
         razorpay_payment_id=sim_pay_id,
         razorpay_signature=sim_sig,
         payment_method=method,
+        booking_id=booking_id,
     )
     if err:
         return jsonify({"success": False, "error": err}), _error_status_from_message(err)
@@ -367,3 +404,115 @@ def health_check():
             "database_connected": False,
             "error": "Database connection failure"
         }), 500
+
+
+@api_bp.route("/geo/search", methods=["GET"])
+def api_geo_search():
+    """Explicit-submit Nominatim geocoding lookup (never used for keystroke autocomplete)."""
+    q = request.args.get("q", "").strip()
+    limit = request.args.get("limit", 5)
+    result = geocode_address(q, limit=limit)
+    return jsonify(result), (200 if result.get("ok") else 400 if len(q) < 3 else 503)
+
+
+@api_bp.route("/geo/reverse", methods=["GET"])
+def api_geo_reverse():
+    """Reverse geocode coordinates via OpenStreetMap Nominatim."""
+    lat = request.args.get("lat")
+    lng = request.args.get("lng")
+    result = reverse_geocode(lat, lng)
+    return jsonify(result), (200 if result.get("ok") else 400)
+
+
+@api_bp.route("/geo/route", methods=["GET"])
+def api_geo_route():
+    """Calculate OSRM driving route polyline, distance, duration, and maneuver steps."""
+    olat = request.args.get("origin_lat")
+    olng = request.args.get("origin_lng")
+    dlat = request.args.get("dest_lat")
+    dlng = request.args.get("dest_lng")
+    result = calculate_route(olat, olng, dlat, dlng)
+    return jsonify(result), (200 if result.get("ok") else 400)
+
+
+@api_bp.route("/stations/nearby", methods=["GET"])
+def api_nearby_stations():
+    """Find coordinate-verified stations sorted by great-circle distance."""
+    lat = request.args.get("lat")
+    lng = request.args.get("lng")
+    radius_km = request.args.get("radius_km", 35)
+    try:
+        float(lat)
+        float(lng)
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "Valid lat and lng query parameters are required.", "stations": []}), 400
+
+    nearby = find_nearby_stations(lat, lng, radius_km=radius_km)
+    return jsonify({
+        "ok": True,
+        "count": len(nearby),
+        "stations": [
+            {
+                "station_id": s["station_id"],
+                "station_name": s["station_name"],
+                "city": s["city"],
+                "address": s["address"],
+                "latitude": float(s["latitude"]),
+                "longitude": float(s["longitude"]),
+                "distance_km": s["distance_km"],
+                "connector_types": s.get("connector_types"),
+                "provenance_category": s.get("provenance_category", "A_OFFICIAL_DISCLOSURE"),
+            }
+            for s in nearby
+        ],
+    })
+
+
+@api_bp.route("/weather", methods=["GET"])
+def api_weather():
+    """Retrieve Open-Meteo current weather and short hourly forecast for station coordinates."""
+    lat = request.args.get("lat")
+    lng = request.args.get("lng")
+    result = get_station_weather(lat, lng)
+    return jsonify(result), (200 if result.get("ok") else 400)
+
+
+@api_bp.route("/pincode/<pin_code>", methods=["GET"])
+def api_pincode_lookup(pin_code):
+    """Validate 6-digit Indian PIN code and return State, District, and all Post Offices."""
+    result = lookup_indian_pincode(pin_code)
+    status_code = 200 if result.get("ok") else (400 if not result.get("valid") else 404)
+    return jsonify(result), status_code
+
+
+@api_bp.route("/qr/resolve", methods=["GET", "POST"])
+def api_resolve_qr():
+    """
+    Unified QR resolver endpoint for web scanner and mobile cameras.
+    Accepts token as query param 'token', form param, or JSON body.
+    """
+    token = request.args.get("token") or request.args.get("q")
+    if not token and request.is_json:
+        body = request.get_json(silent=True) or {}
+        token = body.get("token") or body.get("qr_data")
+    if not token and request.form:
+        token = request.form.get("token")
+
+    if not token:
+        return jsonify({"success": False, "error": "Missing QR token or data."}), 400
+
+    resolved, err, status = resolve_any_qr_token(token)
+    if err:
+        return jsonify({"success": False, "error": err}), status
+
+    return jsonify({"success": True, "data": resolved}), 200
+
+
+@api_bp.route("/customer/saved-stations/<int:station_id>/toggle", methods=["POST"])
+@login_required
+def api_toggle_saved_station(station_id):
+    """AJAX bookmark toggle for customer station cards."""
+    user_id = get_current_user_id()
+    saved, msg = toggle_saved_station(user_id, station_id)
+    return jsonify({"success": True, "saved": saved, "message": msg}), 200
+

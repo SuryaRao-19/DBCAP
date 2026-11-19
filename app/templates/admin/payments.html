@@ -26,6 +26,7 @@
         <th>Amount</th>
         <th>Paid Timestamp</th>
         <th>Status</th>
+        <th>Actions</th>
       </tr>
     </thead>
     <tbody>
@@ -41,8 +42,13 @@
                 Order: {{ p.razorpay_order_id }}
               </div>
             {% endif %}
+            {% if p.cash_collected_by %}
+              <div style="font-size:0.7rem; color:var(--accent-emerald);">
+                💵 Cash confirmed by Admin #{{ p.cash_collected_by }}
+              </div>
+            {% endif %}
           </td>
-          <td><span style="color: var(--text-dim);">#{{ p.session_id }}</span></td>
+          <td><span style="color: var(--text-dim);">#{{ p.session_id or p.booking_id }}</span></td>
           <td>
             <div style="font-weight: 600;">{{ p.user_name }}</div>
             <div style="font-size: 0.75rem; color: var(--text-dim);">{{ p.user_email }}</div>
@@ -52,7 +58,7 @@
             <div style="font-size: 0.75rem; color: var(--text-dim);">{{ p.point_code }}</div>
           </td>
           <td>
-            <span style="font-weight: 600; font-size: 0.85rem; background: rgba(255,255,255,0.05); padding: 0.2rem 0.5rem; border-radius: var(--radius-sm);">
+            <span class="tech-chip">
               {{ p.payment_method }}
             </span>
             {% if p.gateway_provider %}
@@ -68,9 +74,24 @@
           <td>
             <span class="badge badge-{{ p.payment_status.lower() }}">{{ p.payment_status }}</span>
           </td>
+          <td>
+            {% if p.payment_status == 'PAYMENT_DUE' %}
+              <form method="POST" action="{{ url_for('admin.collect_cash_payment', payment_id=p.payment_id) }}" style="display:inline;" onsubmit="return confirm('Confirm cash collection of ₹{{ '%.2f'|format(p.amount) }} from customer?');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="notes" value="Cash collected by admin at counter">
+                <button type="submit" class="btn btn-xs btn-success" title="Record Cash Collection" style="white-space:nowrap;">
+                  💵 Collect Cash
+                </button>
+              </form>
+            {% elif p.payment_status in ('SUCCESS', 'CAPTURED') %}
+              <span style="font-size:0.75rem; color:var(--accent-emerald);">Settled</span>
+            {% else %}
+              <span style="font-size:0.75rem; color:var(--text-dim);">&mdash;</span>
+            {% endif %}
+          </td>
         </tr>
       {% else %}
-        <tr><td colspan="9" style="text-align:center;color:var(--text-dim);">No payment transactions recorded in ledger.</td></tr>
+        <tr><td colspan="10" style="text-align:center;color:var(--text-dim);">No payment transactions recorded in ledger.</td></tr>
       {% endfor %}
     </tbody>
   </table>

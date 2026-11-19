@@ -1,169 +1,54 @@
-# DATABASE & ARCHITECTURE AUDIT REPORT
-## EV Charging Station Management System — Major Upgrade 2.0
-**Document Date:** October 2026  
-**Auditor:** Senior Database Architect & Full-Stack Engineer  
-**Target Database:** `ev_charging_db` on MySQL 8.0.46 (InnoDB)  
-**Backend Runtime:** Python 3.13 / Flask 3.1.2 / PyMySQL  
+# Phase 1 Application Audit Report
+## Authentication, UI Consistency, Navigation & CSRF Hardening Overhaul
+
+**Target Application:** EZ Charge Network Portal (Independent Academic Demonstration — Tata Power EZ Charge Reference)  
+**Audit Scope:** `app/__init__.py`, `app/routes/`, `app/services/`, `app/db.py`, `app/templates/`, `app/static/css/style.css`, `app/static/js/`, `database/01_schema.sql`, `requirements.txt`, `.env.example`, `.gitignore`, `run.py`, `vercel.json`.
 
 ---
 
-## 1. Executive Summary & Scope
+## 1. Executive Inventory
 
-An end-to-end technical audit was conducted on the **EV Charging Station Management System** workspace (`DBCAP`), encompassing the MySQL database instance, relational schema definitions, stored procedures, triggers, connection layers, backend services, and user interfaces.
-
-The system is a production-style, database-backed web application running on local port `3306` with schema `ev_charging_db`. All core tables are in **Third Normal Form (3NF)** and utilize the **InnoDB** storage engine for ACID transaction compliance and foreign key referential integrity.
-
----
-
-## 2. Current Architecture Overview
-
-```
-+-----------------------------------------------------------------------------------+
-|                                 PRESENTATION TIER                                 |
-|  - HTML5, Vanilla CSS3 (Electric Emerald #10b981 & Slate Dark #0a0f1d Design)     |
-|  - Responsive navigation drawers, modal dialogs, accessible status indicators     |
-+-----------------------------------------+-----------------------------------------+
-                                          | HTTP / JSON / Form POST
-                                          v
-+-----------------------------------------------------------------------------------+
-|                               APPLICATION / API TIER                              |
-|  - Flask 3.1.2 Application Factory (create_app in app/__init__.py)                |
-|  - Modular Blueprints: public_bp, auth_bp, admin_bp, owner_bp, api_bp             |
-|  - Services: auth_service, booking_service, session_service, station_service,     |
-|              vehicle_service, payment_service, report_service                     |
-|  - Security: PBKDF2/scrypt password hashing, session RBAC, CSRF token validation  |
-+-----------------------------------------+-----------------------------------------+
-                                          | Parameterized SQL (PyMySQL)
-                                          v
-+-----------------------------------------------------------------------------------+
-|                                  DATABASE TIER                                    |
-|  - MySQL 8.0.46 Community Server (InnoDB Storage Engine)                          |
-|  - Transaction Management: Atomic multi-statement blocks with context manager     |
-|  - Concurrency: Row-level locking (SELECT ... FOR UPDATE)                         |
-|  - Procedural Logic: CalculateChargingCost(), CompleteChargingSession()           |
-|  - Invariants: Pre-insert collision trigger trg_booking_before_insert              |
-|  - Performance: Composite B-Tree indexes on search, status, and join paths        |
-+-----------------------------------------------------------------------------------+
-```
+1. **Registered Blueprints (`app/__init__.py`):**
+   - `public_bp` (`/`): Landing, About, Data Sources, Stations, Station Detail, QR scan, Privacy, Terms, Contact, Profile.
+   - `auth_bp` (`/`): `/login`, `/register`, `/logout`.
+   - `admin_bp` (`/admin`): Dashboard, Stations, Points, Bookings, Sessions, Payments, Users, Enquiries, Audit Logs, System Health, Data Sources, Reports, Station QR generation/print.
+   - `owner_bp` (`/owner`): Dashboard, Vehicles, Stations, Book Slot, Bookings, Charging Session, Checkout, History, Receipt.
+   - `api_bp` (`/api`): Point statuses, active session, session complete, slot overlap check, Razorpay order/verify/sandbox/QR/webhook, health check.
+2. **Authentication & Registration (`app/routes/auth.py`, `app/services/auth_service.py`):**
+   - Password-based local auth using Werkzeug `generate_password_hash` / `check_password_hash`.
+   - Registration hard-codes `OWNER` role (`allow_admin=False`) — secure privilege lock, **no Google OAuth / OIDC yet**, no password visibility toggle, and no Forgot/Reset Password flow.
+3. **Database Schema (`database/01_schema.sql`):**
+   - `Users` table has `user_id`, `full_name`, `email (UNIQUE)`, `phone`, `password_hash (NOT NULL)`, `role ENUM('ADMIN','OWNER')`, `account_status ENUM('ACTIVE','INACTIVE')`, `created_at`.
+   - Missing OAuth/OIDC & lifecycle columns: `google_sub`, `auth_provider`, `email_verified`, `profile_picture_url`, `updated_at`, `last_login`, nullable `password_hash`, and `PasswordResetTokens`.
+4. **Session & CSRF Protection (`app/__init__.py`, `app/routes/auth_middleware.py`, `app/static/js/main.js`):**
+   - `Flask-WTF` `CSRFProtect` initialized globally (`WTF_CSRF_TIME_LIMIT = 3600`), `SESSION_COOKIE_HTTPONLY = True`, `SameSite = "Lax"`, `SESSION_COOKIE_SECURE` tied to production/Vercel env.
+   - `_verify_active_session_user()` checks DB `account_status == 'ACTIVE'` and syncs `session["role"]`.
+   - `@csrf.exempt` applied **only** to `POST /api/payments/razorpay/webhook` (authenticated via `X-Razorpay-Signature` HMAC).
+5. **Layouts, Theme Split & Sidebar Navigation (`app/templates/base.html`, `app/static/css/style.css`, `app/static/js/main.js`):**
+   - Public pages, Auth pages, and Owner portal use Deep Midnight Navy (`#0B1220` / `#111C2E` / `#00C985` / `#00D4FF`).
+   - **Theme Conflict:** `style.css` lines 1472–1799 override `body.has-admin-sidebar` with a bright white/slate Light Theme (`#F4F7FA` / `#FFFFFF`), plus hardcoded `#475569` / `#64748B` / `#E2E8F0` / `#059669` / `#D97706` in `admin/dashboard.html`, `admin/data_sources.html`, `admin/stations.html`, and `data_sources.html`.
 
 ---
 
-## 3. Current Table Inventory (Ground Truth)
+## 2. Root-Cause Findings
 
-The live database currently contains 7 core tables:
+### Finding 1 — `"400 Security check failed (invalid or missing CSRF token)"`
+1. **Browser `bfcache` & Stale Form Tokens:** When a user logs in, logs out, navigates back (`history.back()`), or leaves a form tab open across a login (`session.clear()` in `auth.py`), the previously rendered HTML still holds a stale `<input name="csrf_token">` and `<meta name="csrf-token">`. Submitting it triggers `CSRFError` (400).
+2. **Session Expiration Recovery:** Once `WTF_CSRF_TIME_LIMIT` expires or cookies clear, `CSRFError` currently renders generic `error.html` without offering automatic token refresh (`GET /auth/csrf-token` on `pageshow`/retry) or an explicit reload/re-login recovery prompt.
 
-| Table Name | Storage Engine | Row Count | Primary Key | Foreign Key References | Purpose |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **`Users`** | InnoDB | 11 | `user_id` | *None* | Authentication, customer/admin profiles, roles (`ADMIN`, `OWNER`), account status. |
-| **`Vehicles`** | InnoDB | 10 | `vehicle_id` | `user_id -> Users.user_id` (`ON DELETE CASCADE`) | Registered electric vehicles owned by drivers (make, model, battery capacity). |
-| **`Stations`** | InnoDB | 3 | `station_id` | *None* | Physical charging facilities (address, city, opening/closing hours, operational status). |
-| **`ChargingPoints`**| InnoDB | 6 | `point_id` | `station_id -> Stations.station_id` (`ON DELETE CASCADE`) | Charging dispensers (point code, connector type, max power kW, tariff per kWh, status). |
-| **`Bookings`** | InnoDB | 9 | `booking_id` | `user_id -> Users.user_id`, `vehicle_id -> Vehicles.vehicle_id`, `point_id -> ChargingPoints.point_id` (`ON DELETE NO ACTION`) | Reserved charging slots (start/end timestamps, status: `PENDING`, `CONFIRMED`, `CANCELLED`, `COMPLETED`). |
-| **`ChargingSessions`**| InnoDB| 6 | `session_id` | `booking_id -> Bookings.booking_id`, `user_id -> Users.user_id`, `vehicle_id -> Vehicles.vehicle_id`, `point_id -> ChargingPoints.point_id` (`ON DELETE NO ACTION`) | Energy delivery records (start/end datetime, energy kWh, tariff rate, total cost, status). |
-| **`Payments`** | InnoDB | 6 | `payment_id` | `session_id -> ChargingSessions.session_id` (`ON DELETE NO ACTION`) | Financial ledger records (transaction reference, amount, payment method, payment status, timestamp). |
+### Finding 2 — Admin Sidebar Navigation Flicker & Layout Shift
+1. **Post-Paint Collapsed Class (`main.js`):** `base.html` paints `<body class="has-admin-sidebar">` initially at full sidebar width (`260px`), and only *after* parsing the bottom of `<body>` does `DOMContentLoaded` in `main.js` read `localStorage('ev_sidebar_collapsed')` and add `.sidebar-collapsed` (`76px`). Every navigation flashes expanded -> collapsed and shifts `.admin-workspace` width.
+2. **Initial Transition Replay & Hover Transitions:** CSS `transition: width 0.2s ease` / `margin-left 0.2s ease` triggers on initial paint when `.sidebar-collapsed` is toggled synchronously or asynchronously unless disabled on first frame (`no-sidebar-transition` cleared after `requestAnimationFrame`), and `--transition: all 0.18s ...` on `.sidebar-link` triggers overly broad `all`-property repaints.
+3. **Dark/Light Flash on Route Switch:** Switching between Public/Profile routes (`#0B1220`) and Admin routes (`#F4F7FA`) causes stark background luminance flashing.
 
----
-
-## 4. Existing Relationship Diagram (Entity-Relationship)
-
-```mermaid
-erDiagram
-    Users ||--o{ Vehicles : "owns (1:N)"
-    Users ||--o{ Bookings : "places (1:N)"
-    Users ||--o{ ChargingSessions : "participates (1:N)"
-    Stations ||--|{ ChargingPoints : "houses (1:N)"
-    Vehicles ||--o{ Bookings : "reserved for (1:N)"
-    Vehicles ||--o{ ChargingSessions : "charged in (1:N)"
-    ChargingPoints ||--o{ Bookings : "slotted at (1:N)"
-    ChargingPoints ||--o{ ChargingSessions : "dispenses to (1:N)"
-    Bookings ||--o| ChargingSessions : "initiates (1:1 optional)"
-    ChargingSessions ||--o| Payments : "billed via (1:1)"
-```
+### Finding 3 — Missing Google OAuth 2.0 & Auth UX Gaps
+- `Authlib` is absent from `requirements.txt`; no `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REDIRECT_URI` config exists; `/login` and `/register` lack Google Sign-In, password visibility toggles, and Forgot/Reset Password flows.
 
 ---
 
-## 5. End-to-End Data Flow
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Driver as EV Owner (Browser)
-    participant Route as Flask Route (/owner/book)
-    participant Service as BookingService
-    participant DB as MySQL 8+ (InnoDB)
-
-    Driver->>Route: POST /owner/book/1 (point_id, vehicle_id, start_at, end_at)
-    Route->>Service: create_booking(user_id, point_id, vehicle_id, start_at, end_at)
-    
-    rect rgb(20, 30, 45)
-        Note over Service,DB: Transaction Context Manager (START TRANSACTION)
-        Service->>DB: SELECT point_id, status FROM ChargingPoints WHERE point_id = ? FOR UPDATE;
-        Note over DB: Dispenser row locked against concurrent threads
-        Service->>DB: Query existing overlapping bookings (CONFIRMED/PENDING)
-        DB-->>Service: 0 overlapping records found
-        Service->>DB: INSERT INTO Bookings (user_id, vehicle_id, point_id, start_at, end_at, status)
-        Note over DB: Trigger trg_booking_before_insert verifies vehicle ownership & slot availability
-        DB-->>Service: booking_id generated (e.g. 25)
-        Service->>DB: COMMIT;
-    end
-    
-    Service-->>Route: Success result {booking_id: 25}
-    Route-->>Driver: HTTP 302 Redirect to /owner/bookings with Flash success message
-```
-
----
-
-## 6. Identified Problems & Severity Assessment
-
-| # | Finding / Issue | Severity | Root Cause | Impact | Recommended Resolution |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **1** | **No Persistent Audit Trail for Admin Actions** | **HIGH** | The schema lacked an `AuditLogs` table to track who modified station status, point tariffs, or user accounts. | Inability to audit administrative privilege escalation or trace accidental status changes. | Add an `AuditLogs` table and wire it to administrative service functions. |
-| **2** | **Configuration Hardcoded in Code** | **MEDIUM** | Business thresholds (e.g. max reservation window, cancellation grace period, tax rate) are embedded in Python files. | Changing operational policies requires code edits rather than database configuration. | Add a `SystemSettings` table to store key-value system parameters. |
-| **3** | **Unsafe `DROP DATABASE` in Normal Setup Scripts** | **MEDIUM** | `01_schema.sql` originally contained `DROP DATABASE IF EXISTS ev_charging_db;`. | Accidental script execution in Workbench could drop production or testing data. | Remove destructive drops from normal schema files; isolate clean resets into `reset_database_DEV_ONLY.sql`. |
-| **4** | **SQL Script Naming Inconsistency** | **LOW** | The previous files in `database/` used custom numbering that did not strictly match the requested Phase 5 toolkit layout. | Causes confusion for students or evaluators navigating the folder in MySQL Workbench. | Organize files into the exact 1-10 structure specified in Phase 5. |
-| **5** | **Timezone Convention Documentation** | **LOW** | Database stores timestamps as `DATETIME` without an explicitly documented timezone convention. | Possible confusion between UTC and local Indian Standard Time (IST / UTC+5:30). | Explicitly document that all session and booking timestamps are recorded in local application time (IST / +05:30). |
-
----
-
-## 7. Proposed Schema Additions & Rationale
-
-### Addition 1: `AuditLogs` Table
-```sql
-CREATE TABLE IF NOT EXISTS AuditLogs (
-    log_id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT NULL,
-    action VARCHAR(80) NOT NULL,
-    entity_name VARCHAR(50) NOT NULL,
-    entity_id INT NULL,
-    details TEXT,
-    ip_address VARCHAR(45) NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE SET NULL,
-    INDEX idx_audit_entity (entity_name, entity_id),
-    INDEX idx_audit_created (created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-```
-* **Why Necessary:** Provides full accountability for administrative actions (station status changes, dispenser maintenance, user suspension, and tariff revisions).
-
-### Addition 2: `SystemSettings` Table
-```sql
-CREATE TABLE IF NOT EXISTS SystemSettings (
-    setting_key VARCHAR(50) PRIMARY KEY,
-    setting_value VARCHAR(255) NOT NULL,
-    description VARCHAR(255) NULL,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-```
-* **Why Necessary:** Centralizes global application policy variables (e.g., `max_booking_hours`, `cancellation_grace_mins`, `tax_rate_percent`) directly in the database.
-
----
-
-## 8. Conclusion & Action Plan
-
-The existing relational design is sound, normalized to 3NF, and features active row-locking concurrency control. The schema additions (`AuditLogs`, `SystemSettings`) provide the missing administrative visibility and runtime configuration needed for a complete enterprise solution. 
-
-The implementation proceeds with:
-1. Executing migration `002_add_audit_logs_and_settings.sql`.
-2. Standardizing the `database/` directory to the exact 10-file MySQL Workbench toolkit.
-3. Integrating the audit logger into backend services.
-4. Documenting database inspection, backup, and restore procedures.
+## 3. Remediation Plan
+1. Apply MySQL migration `007_google_oauth_and_auth_overhaul.sql` extending `Users` safely + adding `PasswordResetTokens`.
+2. Integrate `Authlib` OIDC Google Sign-In (`/auth/google/login`, `/auth/google/callback`) with state/nonce checks, strict verified-email checks, safe linking, non-ADMIN role lock, graceful unconfigured fallback, plus `/forgot-password` and `/reset-password/<token>`.
+3. Add `/auth/csrf-token` refresh endpoint + `pageshow` (`bfcache`) & AJAX retry token sync + friendly `CSRFError` recovery UX.
+4. Unify all interfaces under one cohesive Dark EV theme (`#0B1220` / `#111C2E` / `#162338` / `#00D6A0` / `#00C8FF` / `#F8FAFC` / `#94A3B8` / `#26364C`), removing the Light Admin override and fixing Chart.js + template contrast.
+5. Eliminate sidebar FOUC & flicker with synchronous `<head>` state initialization (`html.sidebar-collapsed` + `html.sidebar-no-anim`) and restrained GPU-friendly transitions.

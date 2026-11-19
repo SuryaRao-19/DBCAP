@@ -20,13 +20,23 @@ def test_real_world_identity_about_data_sources_and_social_links(client):
     # Footer / layout external social links must open in new tab safely
     expected_socials = [
         "https://www.linkedin.com/company/tata-power/",
-        "https://x.com/TataPower",
+        "https://x.com/tatapower",
         "https://www.instagram.com/tatapowercompanyltd/",
-        "https://www.youtube.com/@tatapower",
         "https://www.facebook.com/tatapower/",
     ]
     for url in expected_socials:
         assert f'href="{url}" target="_blank" rel="noopener noreferrer"' in home_html
+
+    # YouTube official channel URL requested by prompt
+    assert (
+        'href="https://www.youtube.com/channel/UCCz5pvnMkswgbWh5MKMH-vQ" target="_blank" rel="noopener noreferrer"' in home_html
+        or 'href="https://www.youtube.com/@TataPowerCompanyLtd" target="_blank" rel="noopener noreferrer"' in home_html
+    )
+
+    # Official website, EZ Charge, and Linktree presence
+    assert 'href="https://www.tatapower.com/" target="_blank" rel="noopener noreferrer"' in home_html
+    assert 'href="https://www.tatapower.com/ezcharge" target="_blank" rel="noopener noreferrer"' in home_html
+    assert 'href="https://linktr.ee/Tata_Power_EZ_Charge" target="_blank" rel="noopener noreferrer"' in home_html
 
     res_about = client.get("/about")
     assert res_about.status_code == 200
@@ -107,6 +117,7 @@ def test_csv_import_validation_pending_gate_and_admin_approval(admin_client, own
     assert len(bad_res["skipped"]) == 1
 
     unique_name = "Test Dwarka Sector 21 EZ Hub"
+    execute("DELETE FROM Stations WHERE station_name = %s", (unique_name,))
     good_csv = (
         "station_name,address,city,state,postal_code,latitude,longitude,operator_name,"
         "connector_types,charger_capacity_kw,source_url,facilities\n"

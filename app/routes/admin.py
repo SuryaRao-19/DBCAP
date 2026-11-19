@@ -2,7 +2,7 @@
 Admin / Station Operator Routes
 EV Charging Station Management System - DBMS Capstone Project
 """
-from flask import Blueprint, render_template, request, redirect, url_for, flash
+from flask import Blueprint, render_template, request, redirect, url_for, flash, Response, abort
 from app.routes.auth_middleware import login_required, role_required, get_current_user_id
 from app.services.station_service import (
     get_all_stations, get_station_by_id, create_station, update_station,
@@ -30,6 +30,19 @@ from app.services.station_import_service import (
 from app.services.platform_service import (
     get_data_sources, update_data_source, VALID_DATA_STATUSES
 )
+from app.services.openchargemap_service import sync_openchargemap_stations
+from app.services.api_health_service import get_api_integration_overview
+from app.services.qr_service import (
+    get_or_create_station_qr,
+    regenerate_station_qr,
+    revoke_station_qr,
+    render_qr_png_bytes,
+    render_qr_svg_bytes,
+    get_or_create_point_qr,
+    regenerate_point_qr,
+)
+from app.services.customer_service import add_notification
+from app.db import query_all, query_one, execute
 
 admin_bp = Blueprint("admin", __name__)
 
@@ -48,12 +61,14 @@ def dashboard():
     recent_bookings = get_all_bookings()[:5]
     recent_sessions = get_all_sessions()[:5]
     charts = get_admin_chart_analytics()
+    api_overview = get_api_integration_overview()
     return render_template(
         "admin/dashboard.html",
         metrics=metrics,
         recent_bookings=recent_bookings,
         recent_sessions=recent_sessions,
         charts=charts,
+        api_overview=api_overview,
     )
 
 
@@ -166,12 +181,144 @@ def import_stations():
     return redirect(url_for("admin.stations"))
 
 
+@admin_bp.route("/stations/sync-ocm", methods=["POST"], endpoint="sync_ocm")
+@admin_bp.route("/sync-ocm-stations", methods=["POST"], endpoint="sync_ocm_stations_route")
+@admin_bp.route("/integrations/ocm/sync", methods=["POST"])
+def sync_ocm():
+    """Trigger synchronization of Open Charge Map POI records for Delhi NCR."""
+    admin_id = get_current_user_id()
+    city = request.form.get("city", "Delhi NCR").strip()
+    try:
+        max_res = min(50, max(5, int(request.form.get("max_results", 25))))
+    except (TypeError, ValueError):
+        max_res = 25
+
+    coords = {
+        "Delhi NCR": (28.6139, 77.2090),
+        "Gurugram": (28.4595, 77.0266),
+        "Noida": (28.5355, 77.3910),
+        "Faridabad": (28.4089, 77.3178),
+        "Ghaziabad": (28.6692, 77.4538),
+    }
+    lat, lng = coords.get(city, (28.6139, 77.2090))
+
+    res = sync_openchargemap_stations(latitude=lat, longitude=lng, distance_km=45, max_results=max_res)
+
+    log_audit_event(
+        action="SYNC_OPEN_CHARGE_MAP",
+        entity_name="Stations",
+        entity_id=None,
+        user_id=admin_id,
+        details=f"OCM sync for {city}: {res.get('imported', 0)} imported, {res.get('updated', 0)} updated, {res.get('duplicates', 0)} duplicates",
+        ip_address=request.remote_addr,
+    )
+
+    if res.get("success"):
+        flash(
+            f"Open Charge Map Sync Complete ({city}): {res.get('imported', 0)} new stations imported, "
+            f"{res.get('updated', 0)} updated, {res.get('duplicates', 0)} duplicates checked.",
+            "success"
+        )
+    else:
+        flash(f"Open Charge Map synchronization note: {res.get('message', 'Completed with cached data')}", "info")
+
+    next_endpoint = request.form.get("next_endpoint")
+    if next_endpoint == "admin.dashboard":
+        return redirect(url_for("admin.dashboard"))
+    return redirect(url_for("admin.stations"))
+
+
+@admin_bp.route("/stations/<int:station_id>/qr/png", endpoint="download_qr_png")
+@admin_bp.route("/stations/<int:station_id>/qr.png", endpoint="station_qr_png")
+def station_qr_png(station_id):
+    qr = get_or_create_station_qr(station_id, admin_user_id=get_current_user_id())
+    if not qr:
+        abort(404)
+    target_url = url_for("public.scan_station_qr", token=qr["qr_token"], _external=True)
+    img = render_qr_png_bytes(target_url)
+    return Response(img, mimetype="image/png")
+
+
+@admin_bp.route("/stations/<int:station_id>/qr/svg", endpoint="download_qr_svg")
+@admin_bp.route("/stations/<int:station_id>/qr.svg", endpoint="station_qr_svg")
+def station_qr_svg(station_id):
+    qr = get_or_create_station_qr(station_id, admin_user_id=get_current_user_id())
+    if not qr:
+        abort(404)
+    target_url = url_for("public.scan_station_qr", token=qr["qr_token"], _external=True)
+    svg = render_qr_svg_bytes(target_url)
+    return Response(svg, mimetype="image/svg+xml")
+
+
+@admin_bp.route("/stations/<int:station_id>/qr/print", endpoint="print_station_qr")
+def station_qr_print(station_id):
+    station = get_station_by_id(station_id)
+    if not station:
+        flash("Station not found.", "danger")
+        return redirect(url_for("admin.stations")), 404
+    qr = get_or_create_station_qr(station_id, admin_user_id=get_current_user_id())
+    return render_template("admin/print_qr.html", station=station, qr=qr, qr_row=qr)
+
+
+@admin_bp.route("/stations/<int:station_id>/qr/regenerate", methods=["POST"], endpoint="regenerate_qr_route")
+def station_qr_regenerate(station_id):
+    admin_id = get_current_user_id()
+    new_qr, err = regenerate_station_qr(station_id, admin_id)
+    if err:
+        flash(err, "danger")
+    else:
+        flash("Station QR token rotated successfully.", "success")
+    return redirect(url_for("admin.stations"))
+
+
+@admin_bp.route("/stations/<int:station_id>/qr/revoke", methods=["POST"], endpoint="revoke_qr_route")
+def station_qr_revoke(station_id):
+    admin_id = get_current_user_id()
+    ok, err = revoke_station_qr(station_id, admin_id)
+    if not ok:
+        flash(err, "danger")
+    else:
+        flash("Station QR token revoked.", "info")
+    return redirect(url_for("admin.stations"))
+
+
+@admin_bp.route("/points/<int:point_id>/qr.png", endpoint="download_point_qr_png")
+@admin_bp.route("/points/<int:point_id>/qr/png", endpoint="point_qr_png")
+def point_qr_png(point_id):
+    qr = get_or_create_point_qr(point_id, created_by=get_current_user_id())
+    if not qr:
+        abort(404)
+    target_url = url_for("public.scan_point_qr", token=qr["qr_token"], _external=True)
+    img = render_qr_png_bytes(target_url)
+    return Response(img, mimetype="image/png")
+
+
+@admin_bp.route("/points/<int:point_id>/qr/regenerate", methods=["POST"], endpoint="regenerate_point_qr_route")
+def point_qr_regenerate(point_id):
+    admin_id = get_current_user_id()
+    token = regenerate_point_qr(point_id, created_by=admin_id)
+    flash("Point QR token rotated successfully.", "success")
+    return redirect(url_for("admin.points"))
+
+
 @admin_bp.route("/stations/<int:station_id>/review", methods=["POST"])
+@admin_bp.route("/stations/<int:station_id>/verify", methods=["POST"], endpoint="verify_station_route")
 def review_station(station_id):
-    """Approve or reject imported/unverified charging stations."""
-    decision = request.form.get("decision", "")
-    verif_status = request.form.get("verification_status", "").strip() or None
-    success, msg = review_station_approval(station_id, decision, verification_status=verif_status)
+    """Approve or reject imported/unverified charging stations or update verification status."""
+    decision = request.form.get("decision", "").strip().upper()
+    verif_status = request.form.get("verification_status", "").strip().upper() or None
+    if decision:
+        success, msg = review_station_approval(station_id, decision, verification_status=verif_status)
+    elif verif_status:
+        execute(
+            "UPDATE Stations SET verification_status = %s, last_verified_at = NOW() WHERE station_id = %s",
+            (verif_status, station_id),
+        )
+        msg = f"Station #{station_id} verification status updated to {verif_status}."
+        success = True
+    else:
+        success, msg = False, "No decision or verification status provided."
+
     if success:
         log_audit_event(
             action="REVIEW_STATION_APPROVAL",
@@ -261,6 +408,71 @@ def sessions():
 def payments():
     all_payments = get_all_payments()
     return render_template("admin/payments.html", payments=all_payments)
+
+
+@admin_bp.route("/payments/<int:payment_id>/collect-cash", methods=["POST"])
+def collect_cash_payment(payment_id):
+    """Confirm receipt of offline cash payment at station counter / bay."""
+    admin_id = get_current_user_id()
+    notes = request.form.get("notes", "Cash collected at station counter / bay").strip()
+
+    payment = query_one(
+        "SELECT p.*, b.booking_id, b.user_id, s.station_name "
+        "FROM Payments p "
+        "LEFT JOIN Bookings b ON b.booking_id = p.booking_id "
+        "LEFT JOIN ChargingPoints cp ON cp.point_id = b.point_id "
+        "LEFT JOIN Stations s ON s.station_id = cp.station_id "
+        "WHERE p.payment_id = %s",
+        (payment_id,)
+    )
+    if not payment:
+        flash("Payment record not found.", "danger")
+        return redirect(url_for("admin.payments"))
+
+    if payment["payment_status"] != "PAYMENT_DUE":
+        flash(f"Payment #{payment_id} is in status '{payment['payment_status']}' and cannot be recollected.", "warning")
+        return redirect(url_for("admin.payments"))
+
+    execute(
+        "UPDATE Payments "
+        "SET payment_status = 'SUCCESS', "
+        "    paid_at = NOW(), "
+        "    cash_collected_by = %s, "
+        "    cash_collected_at = NOW(), "
+        "    cash_notes = %s "
+        "WHERE payment_id = %s",
+        (admin_id, notes, payment_id)
+    )
+
+    if payment.get("booking_id"):
+        execute(
+            "UPDATE Bookings SET booking_status = 'CONFIRMED' WHERE booking_id = %s",
+            (payment["booking_id"],)
+        )
+
+    log_audit_event(
+        action="COLLECT_CASH_PAYMENT",
+        entity_name="Payments",
+        entity_id=payment_id,
+        user_id=admin_id,
+        details=f"Admin #{admin_id} confirmed cash collection of ₹{payment['amount']} for Payment #{payment_id} (Booking #{payment.get('booking_id')})",
+        ip_address=request.remote_addr,
+    )
+
+    if payment.get("user_id"):
+        try:
+            add_notification(
+                user_id=payment["user_id"],
+                title="Cash Payment Received & Confirmed",
+                message=f"Cash payment of ₹{float(payment['amount']):.2f} for booking #{payment.get('booking_id')} was confirmed by station administration.",
+                category="PAYMENT",
+                link_url=f"/customer/payments",
+            )
+        except Exception:
+            pass
+
+    flash(f"Cash payment of ₹{float(payment['amount']):.2f} (Payment #{payment_id}) recorded successfully. Booking marked CONFIRMED.", "success")
+    return redirect(url_for("admin.payments"))
 
 
 @admin_bp.route("/reports")
@@ -483,4 +695,94 @@ def update_data_source_route(source_id):
     else:
         flash(msg, "danger")
     return redirect(url_for("admin.admin_data_sources"))
+
+
+@admin_bp.route("/users/<int:user_id>")
+def user_detail(user_id):
+    """Detailed inspection of an individual customer, owner or admin profile."""
+    from app.services.auth_service import get_user_profile
+    target_user = get_user_profile(user_id)
+    if not target_user:
+        flash("User not found.", "danger")
+        return redirect(url_for("admin.users"))
+
+    from app.services.vehicle_service import get_vehicles_by_user
+    vehicles = get_vehicles_by_user(user_id)
+
+    owned_stations = query_all(
+        "SELECT s.*, COUNT(cp.point_id) AS total_points "
+        "FROM Stations s "
+        "LEFT JOIN ChargingPoints cp ON cp.station_id = s.station_id "
+        "WHERE s.owner_user_id = %s "
+        "GROUP BY s.station_id",
+        (user_id,)
+    )
+
+    bookings = query_all(
+        "SELECT b.*, cp.point_code, cp.connector_type, s.station_name, v.registration_no "
+        "FROM Bookings b "
+        "LEFT JOIN ChargingPoints cp ON cp.point_id = b.point_id "
+        "LEFT JOIN Stations s ON s.station_id = cp.station_id "
+        "LEFT JOIN Vehicles v ON v.vehicle_id = b.vehicle_id "
+        "WHERE b.user_id = %s ORDER BY b.start_at DESC LIMIT 10",
+        (user_id,)
+    )
+
+    sessions = query_all(
+        "SELECT cs.*, cp.point_code, s.station_name, v.registration_no "
+        "FROM ChargingSessions cs "
+        "LEFT JOIN ChargingPoints cp ON cp.point_id = cs.point_id "
+        "LEFT JOIN Stations s ON s.station_id = cp.station_id "
+        "LEFT JOIN Vehicles v ON v.vehicle_id = cs.vehicle_id "
+        "WHERE cs.user_id = %s ORDER BY cs.start_at DESC LIMIT 10",
+        (user_id,)
+    )
+
+    return render_template(
+        "admin/user_detail.html",
+        user=target_user,
+        vehicles=vehicles,
+        owned_stations=owned_stations,
+        bookings=bookings,
+        sessions=sessions,
+    )
+
+
+@admin_bp.route("/owner-applications")
+def owner_applications():
+    search_q = (request.args.get("q") or "").strip()
+    status_filter = (request.args.get("status") or "").strip().upper() or None
+    from app.services.owner_service import get_owner_applications
+    applications = get_owner_applications(status=status_filter, search=search_q)
+    stations_list = get_all_stations()
+    return render_template(
+        "admin/owner_applications.html",
+        applications=applications,
+        stations=stations_list,
+        search_query=search_q,
+        selected_status=status_filter or "",
+    )
+
+
+@admin_bp.route("/owner-applications/<int:application_id>/review", methods=["POST"])
+def review_owner_application_route(application_id):
+    admin_id = get_current_user_id()
+    action = request.form.get("action", "").strip().upper()
+    admin_notes = request.form.get("admin_notes", "").strip()
+    assign_station_id = request.form.get("assign_station_id", type=int)
+
+    from app.services.owner_service import review_owner_application
+    success, err = review_owner_application(
+        application_id=application_id,
+        admin_user_id=admin_id,
+        action=action,
+        admin_notes=admin_notes,
+        assign_station_id=assign_station_id,
+    )
+    if not success:
+        flash(err, "danger")
+    else:
+        flash(f"Application #{application_id} has been {action.lower()}.", "success")
+    return redirect(url_for("admin.owner_applications"))
+
 

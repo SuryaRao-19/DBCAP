@@ -18,7 +18,11 @@ app = create_app()
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
-    debug = os.getenv("FLASK_DEBUG", "False").strip().lower() in ("true", "1", "yes")
+    is_prod = (
+        os.getenv("FLASK_ENV", "development").strip().lower() == "production"
+        or os.getenv("VERCEL", "").strip() == "1"
+    )
+    debug = False if is_prod else (os.getenv("FLASK_DEBUG", "False").strip().lower() in ("true", "1", "yes"))
     print("============================================================")
     print("EV CHARGING STATION MANAGEMENT SYSTEM SERVER STARTED")
     print(f"URL: http://127.0.0.1:{port} (debug={debug})")

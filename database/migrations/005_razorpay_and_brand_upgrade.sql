@@ -76,3 +76,4 @@ ON DUPLICATE KEY UPDATE
     verification_date = VALUES(verification_date),
     data_status = VALUES(data_status),
     notes = VALUES(notes);
+

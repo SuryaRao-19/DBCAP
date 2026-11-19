@@ -2,20 +2,25 @@
 Razorpay Standard Checkout & Webhook Integration Service (TEST MODE ONLY)
 Tata Power EZ Charge — EV Network Management Demo
 """
+import base64
 import hashlib
 import hmac
+import io
 import json
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
+import qrcode
 import requests
 from flask import current_app
 from app.db import query_one, transaction
 from app.services.audit_service import log_audit_event
 
 RAZORPAY_ORDERS_URL = "https://api.razorpay.com/v1/orders"
+RAZORPAY_QR_URL = "https://api.razorpay.com/v1/payments/qr_codes"
 RAZORPAY_PAYMENT_URL_TMPL = "https://api.razorpay.com/v1/payments/{payment_id}"
+PAYMENT_QR_TTL_MINUTES = 10
 VALID_CHECKOUT_METHODS = ("UPI", "CARD", "CREDIT_CARD", "DEBIT_CARD", "NET_BANKING", "WALLET")
 
 
@@ -97,9 +102,10 @@ def get_checkout_context(session_id, user_id):
 
     latest_pay = query_one(
         "SELECT payment_id, transaction_reference, razorpay_order_id, razorpay_payment_id, "
+        "       payment_qr_id, payment_qr_payload, qr_expires_at, "
         "       amount, base_amount, tax_amount, payment_method, gateway_provider, payment_status, paid_at "
         "FROM Payments WHERE session_id = %s "
-        "ORDER BY (payment_status = 'SUCCESS') DESC, payment_id DESC LIMIT 1",
+        "ORDER BY (payment_status IN ('SUCCESS', 'CAPTURED')) DESC, payment_id DESC LIMIT 1",
         (session_id,),
     )
     row["breakdown"] = compute_tax_breakdown(row["total_cost"])
@@ -107,9 +113,48 @@ def get_checkout_context(session_id, user_id):
     return row, None
 
 
-def create_razorpay_order(session_id, user_id, payment_method="UPI"):
+def get_booking_checkout_context(booking_id, user_id):
+    """Fetch complete booking, station, dispenser, vehicle, and tax breakdown scoped to user_id."""
+    row = query_one(
+        "SELECT b.booking_id, b.user_id, b.point_id, b.start_at, b.end_at, "
+        "       b.estimated_energy_kwh, b.estimated_cost, b.booking_status, "
+        "       cp.point_code, cp.connector_type, cp.max_power_kw, cp.tariff_per_kwh, "
+        "       s.station_id, s.station_name, s.address, s.city, s.state, s.operator_name, "
+        "       v.registration_no, v.make, v.model, "
+        "       u.full_name AS customer_name, u.email AS customer_email, u.phone AS customer_phone "
+        "FROM Bookings b "
+        "JOIN ChargingPoints cp ON cp.point_id = b.point_id "
+        "JOIN Stations s ON s.station_id = cp.station_id "
+        "JOIN Vehicles v ON v.vehicle_id = b.vehicle_id "
+        "JOIN Users u ON u.user_id = b.user_id "
+        "WHERE b.booking_id = %s",
+        (booking_id,),
+    )
+    if not row:
+        return None, "Booking reservation not found."
+    if int(row["user_id"]) != int(user_id):
+        return None, "Permission denied: Booking does not belong to your account."
+
+    latest_pay = query_one(
+        "SELECT payment_id, transaction_reference, razorpay_order_id, razorpay_payment_id, "
+        "       payment_qr_id, payment_qr_payload, qr_expires_at, "
+        "       amount, base_amount, tax_amount, payment_method, gateway_provider, payment_status, paid_at "
+        "FROM Payments WHERE booking_id = %s "
+        "ORDER BY (payment_status IN ('SUCCESS', 'CAPTURED')) DESC, payment_id DESC LIMIT 1",
+        (booking_id,),
+    )
+    cost = float(row.get("estimated_cost") or 150.0)
+    row["total_cost"] = cost
+    row["energy_kwh"] = float(row.get("estimated_energy_kwh") or 10.0)
+    row["breakdown"] = compute_tax_breakdown(cost)
+    row["payment"] = latest_pay
+    row["is_paid"] = bool(latest_pay and latest_pay["payment_status"] in ("SUCCESS", "CAPTURED"))
+    return row, None
+
+
+def create_razorpay_order(session_id=None, user_id=None, payment_method="UPI", booking_id=None):
     """
-    Validate session ownership, compute server-side amount, create Razorpay TEST order
+    Validate session or booking ownership, compute server-side amount, create Razorpay TEST order
     (or signed local test sandbox order if API keys are unconfigured), and persist PENDING row.
     """
     creds = get_razorpay_credentials()
@@ -122,29 +167,71 @@ def create_razorpay_order(session_id, user_id, payment_method="UPI"):
 
     try:
         with transaction() as cur:
-            cur.execute(
-                "SELECT session_id, booking_id, user_id, total_cost, session_status "
-                "FROM ChargingSessions WHERE session_id = %s FOR UPDATE",
-                (session_id,),
-            )
-            sess = cur.fetchone()
-            if not sess:
-                return None, "Charging session not found."
-            if int(sess["user_id"]) != int(user_id):
-                return None, "Permission denied: Session does not belong to your account."
-            if sess["session_status"] != "COMPLETED":
-                return None, "Only completed charging sessions can be paid."
+            if session_id:
+                cur.execute(
+                    "SELECT session_id, booking_id, user_id, total_cost, session_status "
+                    "FROM ChargingSessions WHERE session_id = %s FOR UPDATE",
+                    (session_id,),
+                )
+                sess = cur.fetchone()
+                if not sess:
+                    return None, "Charging session not found."
+                if int(sess["user_id"]) != int(user_id):
+                    return None, "Permission denied: Session does not belong to your account."
+                if sess["session_status"] != "COMPLETED":
+                    return None, "Only completed charging sessions can be paid."
 
-            cur.execute(
-                "SELECT payment_id, transaction_reference FROM Payments "
-                "WHERE session_id = %s AND payment_status = 'SUCCESS' FOR UPDATE",
-                (session_id,),
-            )
-            settled = cur.fetchone()
-            if settled:
-                return None, f"Session is already settled under transaction {settled['transaction_reference']}."
+                cur.execute(
+                    "SELECT payment_id, transaction_reference FROM Payments "
+                    "WHERE session_id = %s AND payment_status = 'SUCCESS' FOR UPDATE",
+                    (session_id,),
+                )
+                settled = cur.fetchone()
+                if settled:
+                    return None, f"Session is already settled under transaction {settled['transaction_reference']}."
 
-            breakdown = compute_tax_breakdown(sess["total_cost"])
+                cost_val = sess["total_cost"]
+                target_booking_id = sess.get("booking_id")
+                receipt_str = f"ev_sess_{session_id}_{uuid.uuid4().hex[:6]}"
+                notes_payload = {
+                    "session_id": str(session_id),
+                    "user_id": str(user_id),
+                    "mode": "ACADEMIC_TEST_MODE",
+                }
+            elif booking_id:
+                cur.execute(
+                    "SELECT booking_id, user_id, estimated_cost, booking_status "
+                    "FROM Bookings WHERE booking_id = %s FOR UPDATE",
+                    (booking_id,),
+                )
+                bk = cur.fetchone()
+                if not bk:
+                    return None, "Booking reservation not found."
+                if int(bk["user_id"]) != int(user_id):
+                    return None, "Permission denied: Booking does not belong to your account."
+
+                cur.execute(
+                    "SELECT payment_id, transaction_reference FROM Payments "
+                    "WHERE booking_id = %s AND payment_status = 'SUCCESS' FOR UPDATE",
+                    (booking_id,),
+                )
+                settled = cur.fetchone()
+                if settled:
+                    return None, f"Booking is already settled under transaction {settled['transaction_reference']}."
+
+                cost_val = bk.get("estimated_cost") or 150.0
+                target_booking_id = booking_id
+                session_id = None
+                receipt_str = f"ev_book_{booking_id}_{uuid.uuid4().hex[:6]}"
+                notes_payload = {
+                    "booking_id": str(booking_id),
+                    "user_id": str(user_id),
+                    "mode": "ACADEMIC_TEST_MODE",
+                }
+            else:
+                return None, "Either session_id or booking_id is required."
+
+            breakdown = compute_tax_breakdown(cost_val)
             if breakdown["amount_paise"] < 100:
                 return None, "Minimum ₹1.00 bill amount is required for Razorpay test checkout."
 
@@ -158,13 +245,9 @@ def create_razorpay_order(session_id, user_id, payment_method="UPI"):
                     json={
                         "amount": breakdown["amount_paise"],
                         "currency": "INR",
-                        "receipt": f"ev_sess_{session_id}_{uuid.uuid4().hex[:6]}",
+                        "receipt": receipt_str,
                         "payment_capture": 1,
-                        "notes": {
-                            "session_id": str(session_id),
-                            "user_id": str(user_id),
-                            "mode": "ACADEMIC_TEST_MODE",
-                        },
+                        "notes": notes_payload,
                     },
                     timeout=10,
                 )
@@ -182,7 +265,7 @@ def create_razorpay_order(session_id, user_id, payment_method="UPI"):
                 "VALUES (%s, %s, %s, %s, %s, %s, %s, 'INR', %s, 'RAZORPAY_TEST', 'PENDING', 1, %s)",
                 (
                     session_id,
-                    sess.get("booking_id"),
+                    target_booking_id,
                     tx_ref,
                     order_id,
                     breakdown["total_amount"],
@@ -212,6 +295,104 @@ def create_razorpay_order(session_id, user_id, payment_method="UPI"):
         return None, f"Unable to create Razorpay test order: {str(exc)}"
 
 
+def _render_qr_data_uri(payload_str):
+    """Render an inline base64 PNG data URI for displaying a Dynamic Payment QR safely."""
+    qr = qrcode.QRCode(version=None, error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=8, border=2)
+    qr.add_data(payload_str)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="#0B1220", back_color="#FFFFFF")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+def create_dynamic_payment_qr(session_id=None, user_id=None, payment_method="UPI", booking_id=None):
+    """
+    Create a single-use dynamic UPI Payment QR attempt bound strictly to server-calculated session or booking amount
+    and booking/session ownership with a 10-minute expiration window.
+    Attempts Razorpay QR Codes API when rzp_test_* credentials exist & feature is enabled;
+    otherwise issues a signed Razorpay Test Mode UPI QR payload cleanly.
+    Scanning the QR NEVER marks payment complete; settlement requires verified callback or webhook.
+    """
+    creds = get_razorpay_credentials()
+    if is_live_razorpay_key(creds["key_id"]):
+        return None, "Security block: Live Razorpay credentials are prohibited."
+
+    order, err = create_razorpay_order(session_id=session_id, user_id=user_id, payment_method="UPI", booking_id=booking_id)
+    if err:
+        return None, err
+
+    expires_at = datetime.now() + timedelta(minutes=PAYMENT_QR_TTL_MINUTES)
+    close_by_ts = int(expires_at.timestamp())
+    qr_id = None
+    qr_payload = None
+    qr_mode = "RAZORPAY_CHECKOUT_UPI_QR_SANDBOX"
+    name_label = f"EZ Charge {'Session #' + str(session_id) if session_id else 'Booking #' + str(booking_id)}"
+
+    if has_live_test_credentials(creds):
+        try:
+            qr_resp = requests.post(
+                RAZORPAY_QR_URL,
+                auth=(creds["key_id"], creds["key_secret"]),
+                json={
+                    "type": "upi_qr",
+                    "name": name_label,
+                    "usage": "single_use",
+                    "fixed_amount": True,
+                    "payment_amount": order["amount_paise"],
+                    "description": f"EV Session #{session_id} (TEST MODE)",
+                    "close_by": close_by_ts,
+                    "notes": {
+                        "session_id": str(session_id),
+                        "razorpay_order_id": order["order_id"],
+                        "mode": "ACADEMIC_TEST_MODE",
+                    },
+                },
+                timeout=10,
+            )
+            if qr_resp.status_code in (200, 201):
+                qdata = qr_resp.json()
+                qr_id = qdata.get("id")
+                qr_payload = qdata.get("image_url") or qdata.get("qr_string") or f"razorpay://qr/{qr_id}"
+                qr_mode = "RAZORPAY_DYNAMIC_QR_API"
+        except requests.RequestException:
+            qr_id = None
+
+    if not qr_id:
+        qr_id = f"qr_sim_{uuid.uuid4().hex[:14]}"
+        # Opaque signed test URI bound to exact server-calculated order + amount (never real bank VPA)
+        qr_payload = (
+            f"upi://pay?pa=ezchargedemo@razorpaytest&pn=EZ%20Charge%20Test%20Mode"
+            f"&tr={order['order_id']}&am={order['amount_inr']:.2f}&cu=INR"
+            f"&tn=TEST_MODE_SESSION_{session_id}"
+        )
+
+    qr_data_uri = _render_qr_data_uri(qr_payload)
+    with transaction() as cur:
+        cur.execute(
+            "UPDATE Payments SET payment_qr_id = %s, payment_qr_payload = %s, qr_expires_at = %s "
+            "WHERE payment_id = %s",
+            (qr_id, qr_payload, expires_at, order["payment_row_id"]),
+        )
+
+    log_audit_event(
+        action="PAYMENT_QR_GENERATED",
+        entity_name="Payments",
+        entity_id=order["payment_row_id"],
+        user_id=user_id,
+        details=f"Generated Payment QR {qr_id} ({qr_mode}) for order {order['order_id']}, expires {expires_at.isoformat()}",
+    )
+
+    return {
+        **order,
+        "payment_qr_id": qr_id,
+        "qr_mode": qr_mode,
+        "qr_expires_at": expires_at.isoformat(),
+        "ttl_seconds": PAYMENT_QR_TTL_MINUTES * 60,
+        "qr_image_data_uri": qr_data_uri,
+    }, None
+
+
 def verify_payment_signature(order_id, payment_id, signature, secret_override=None):
     """Verify Razorpay Checkout signature HMAC-SHA256(order_id|payment_id, secret)."""
     if not order_id or not payment_id or not signature:
@@ -235,16 +416,17 @@ def generate_sandbox_payment_proof(order_id):
 
 
 def verify_and_settle_razorpay_payment(
-    session_id,
-    user_id,
-    razorpay_order_id,
-    razorpay_payment_id,
-    razorpay_signature,
+    session_id=None,
+    user_id=None,
+    razorpay_order_id=None,
+    razorpay_payment_id=None,
+    razorpay_signature=None,
     payment_method="UPI",
+    booking_id=None,
 ):
     """
     Cryptographically verify Razorpay payment signature (and API payment status when live test keys exist),
-    enforce session & order ownership, and finalize database settlement atomically.
+    enforce session/booking & order ownership, and finalize database settlement atomically.
     """
     creds = get_razorpay_credentials()
     if is_live_razorpay_key(creds["key_id"]):
@@ -254,7 +436,7 @@ def verify_and_settle_razorpay_payment(
         log_audit_event(
             action="RAZORPAY_SIGNATURE_FAILED",
             entity_name="Payments",
-            entity_id=session_id,
+            entity_id=session_id or booking_id,
             user_id=user_id,
             details=f"Invalid Razorpay signature for order {razorpay_order_id}",
         )
@@ -266,37 +448,67 @@ def verify_and_settle_razorpay_payment(
 
     try:
         with transaction() as cur:
-            cur.execute(
-                "SELECT session_id, booking_id, user_id, total_cost, session_status "
-                "FROM ChargingSessions WHERE session_id = %s FOR UPDATE",
-                (session_id,),
-            )
-            sess = cur.fetchone()
-            if not sess:
-                return None, "Charging session not found."
-            if int(sess["user_id"]) != int(user_id):
-                return None, "Permission denied: Session does not belong to your account."
-
-            cur.execute(
-                "SELECT payment_id, transaction_reference, payment_status, amount "
-                "FROM Payments WHERE session_id = %s AND razorpay_order_id = %s FOR UPDATE",
-                (session_id, razorpay_order_id),
-            )
+            if session_id:
+                cur.execute(
+                    "SELECT payment_id, transaction_reference, payment_status, amount, qr_expires_at, booking_id, session_id "
+                    "FROM Payments WHERE session_id = %s AND razorpay_order_id = %s FOR UPDATE",
+                    (session_id, razorpay_order_id),
+                )
+            elif booking_id:
+                cur.execute(
+                    "SELECT payment_id, transaction_reference, payment_status, amount, qr_expires_at, booking_id, session_id "
+                    "FROM Payments WHERE booking_id = %s AND razorpay_order_id = %s FOR UPDATE",
+                    (booking_id, razorpay_order_id),
+                )
+            else:
+                cur.execute(
+                    "SELECT payment_id, transaction_reference, payment_status, amount, qr_expires_at, booking_id, session_id "
+                    "FROM Payments WHERE razorpay_order_id = %s FOR UPDATE",
+                    (razorpay_order_id,),
+                )
             order_row = cur.fetchone()
             if not order_row:
-                return None, "Matching Razorpay order for this session was not found."
+                return None, "Matching Razorpay order was not found."
 
-            if order_row["payment_status"] == "SUCCESS":
+            # Verify ownership through session or booking
+            if order_row.get("session_id"):
+                cur.execute("SELECT user_id FROM ChargingSessions WHERE session_id = %s", (order_row["session_id"],))
+                owner_chk = cur.fetchone()
+                if not owner_chk or int(owner_chk["user_id"]) != int(user_id):
+                    return None, "Permission denied: Session does not belong to your account."
+            elif order_row.get("booking_id"):
+                cur.execute("SELECT user_id FROM Bookings WHERE booking_id = %s", (order_row["booking_id"],))
+                owner_chk = cur.fetchone()
+                if not owner_chk or int(owner_chk["user_id"]) != int(user_id):
+                    return None, "Permission denied: Booking does not belong to your account."
+
+            if order_row["payment_status"] in ("SUCCESS", "CAPTURED"):
                 return order_row, None
 
-            # Reject if session already paid under another order
-            cur.execute(
-                "SELECT transaction_reference FROM Payments WHERE session_id = %s AND payment_status = 'SUCCESS' FOR UPDATE",
-                (session_id,),
-            )
-            already = cur.fetchone()
-            if already:
-                return None, f"Session already paid under transaction {already['transaction_reference']}."
+            if order_row["payment_status"] == "EXPIRED":
+                return None, "Payment attempt has expired. Please generate a fresh order or Payment QR."
+
+            if order_row.get("qr_expires_at") and order_row["qr_expires_at"] < datetime.now():
+                cur.execute("UPDATE Payments SET payment_status = 'EXPIRED' WHERE payment_id = %s", (order_row["payment_id"],))
+                return None, "Payment QR attempt has expired. Please generate a new payment QR to retry."
+
+            # Reject if already settled
+            if order_row.get("session_id"):
+                cur.execute(
+                    "SELECT transaction_reference FROM Payments WHERE session_id = %s AND payment_status = 'SUCCESS' AND payment_id != %s FOR UPDATE",
+                    (order_row["session_id"], order_row["payment_id"]),
+                )
+                already = cur.fetchone()
+                if already:
+                    return None, f"Session already settled under transaction {already['transaction_reference']}."
+            elif order_row.get("booking_id"):
+                cur.execute(
+                    "SELECT transaction_reference FROM Payments WHERE booking_id = %s AND payment_status = 'SUCCESS' AND payment_id != %s FOR UPDATE",
+                    (order_row["booking_id"], order_row["payment_id"]),
+                )
+                already = cur.fetchone()
+                if already:
+                    return None, f"Booking already settled under transaction {already['transaction_reference']}."
 
             # Double-verify payment state against Razorpay API if real test order
             if not str(razorpay_order_id).startswith("order_sim_") and has_live_test_credentials(creds):
@@ -308,7 +520,7 @@ def verify_and_settle_razorpay_payment(
                 if r.status_code != 200:
                     return None, "Unable to verify Razorpay payment status with gateway."
                 pdata = r.json()
-                expected_paise = int(round(float(sess["total_cost"]) * 100))
+                expected_paise = int(round(float(order_row["amount"]) * 100))
                 if pdata.get("order_id") != razorpay_order_id or int(pdata.get("amount", 0)) != expected_paise:
                     return None, "Gateway order or amount mismatch."
                 if pdata.get("status") not in ("captured", "authorized"):
@@ -325,6 +537,12 @@ def verify_and_settle_razorpay_payment(
             )
             order_row["payment_status"] = "SUCCESS"
             order_row["razorpay_payment_id"] = razorpay_payment_id
+
+            if order_row.get("booking_id"):
+                cur.execute(
+                    "UPDATE Bookings SET booking_status = 'CONFIRMED' WHERE booking_id = %s",
+                    (order_row["booking_id"],)
+                )
 
         log_audit_event(
             action="RAZORPAY_TEST_PAYMENT_VERIFIED",
@@ -367,17 +585,34 @@ def process_razorpay_webhook(raw_body, signature_header, event_id_header=None, s
         return 400, {"success": False, "error": "Malformed JSON webhook payload."}
 
     event_type = (payload.get("event") or "").strip()
-    if event_type not in ("payment.captured", "payment.failed", "order.paid"):
+    handled_events = (
+        "payment.authorized",
+        "payment.captured",
+        "payment.failed",
+        "order.paid",
+        "refund.processed",
+    )
+    if event_type not in handled_events:
         return 200, {"success": True, "status": "IGNORED_UNHANDLED_EVENT", "event": event_type}
 
     p_entity = (payload.get("payload") or {}).get("payment", {}).get("entity", {}) or {}
     o_entity = (payload.get("payload") or {}).get("order", {}).get("entity", {}) or {}
+    r_entity = (payload.get("payload") or {}).get("refund", {}).get("entity", {}) or {}
     order_id = p_entity.get("order_id") or o_entity.get("id")
-    payment_id = p_entity.get("id")
+    payment_id = p_entity.get("id") or r_entity.get("payment_id")
     event_id = (
         (event_id_header or "").strip()
         or f"{event_type}:{order_id or 'none'}:{payment_id or hashlib.sha256(str(payload).encode()).hexdigest()[:12]}"
     )
+
+    status_map = {
+        "payment.authorized": "AUTHORIZED",
+        "payment.captured": "SUCCESS",
+        "order.paid": "SUCCESS",
+        "payment.failed": "FAILED",
+        "refund.processed": "REFUNDED",
+    }
+    target_status = status_map[event_type]
 
     try:
         with transaction() as cur:
@@ -388,20 +623,27 @@ def process_razorpay_webhook(raw_body, signature_header, event_id_header=None, s
             if cur.fetchone():
                 return 200, {"success": True, "status": "DUPLICATE_IGNORED", "event_id": event_id}
 
-            target_status = "FAILED" if event_type == "payment.failed" else "SUCCESS"
-            if order_id:
-                cur.execute(
-                    "SELECT payment_id, payment_status, session_id FROM Payments "
-                    "WHERE razorpay_order_id = %s FOR UPDATE",
-                    (order_id,),
-                )
+            if order_id or payment_id:
+                if order_id:
+                    cur.execute(
+                        "SELECT payment_id, payment_status, session_id FROM Payments "
+                        "WHERE razorpay_order_id = %s FOR UPDATE",
+                        (order_id,),
+                    )
+                else:
+                    cur.execute(
+                        "SELECT payment_id, payment_status, session_id FROM Payments "
+                        "WHERE razorpay_payment_id = %s FOR UPDATE",
+                        (payment_id,),
+                    )
                 pay_row = cur.fetchone()
                 if pay_row:
-                    # Never downgrade an already captured SUCCESS record on out-of-order failure webhook
-                    if not (pay_row["payment_status"] == "SUCCESS" and target_status == "FAILED"):
+                    # Out-of-order protection: never downgrade an already captured/settled order to FAILED or AUTHORIZED
+                    already_settled = pay_row["payment_status"] in ("SUCCESS", "CAPTURED")
+                    if not (already_settled and target_status in ("FAILED", "AUTHORIZED")):
                         cur.execute(
                             "UPDATE Payments SET payment_status = %s, razorpay_payment_id = COALESCE(%s, razorpay_payment_id), "
-                            "paid_at = CASE WHEN %s = 'SUCCESS' THEN COALESCE(paid_at, NOW()) ELSE paid_at END "
+                            "paid_at = CASE WHEN %s IN ('SUCCESS', 'CAPTURED') THEN COALESCE(paid_at, NOW()) ELSE paid_at END "
                             "WHERE payment_id = %s",
                             (target_status, payment_id, target_status, pay_row["payment_id"]),
                         )

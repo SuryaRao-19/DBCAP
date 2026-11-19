@@ -267,11 +267,12 @@ def test_admin_dashboard_charts_sidebar_and_static_ev_media(client, admin_client
     home_html = res_home.data.decode("utf-8")
     assert "Power Every Journey." in home_html
     assert "Charge Smarter." in home_html
-    assert "5,500+" in home_html
-    assert "620+" in home_html
-    assert "1.2 Lakh+" in home_html
+    assert "6,700+" in home_html
+    assert "700+" in home_html
+    assert "2.5 lakh+" in home_html
     assert "1,200+" in home_html
-    assert "https://play.google.com/store/apps/details?id=com.tatapower.ezcharge" in home_html
+    assert "https://play.google.com/store/apps/details?id=com.tatapower.evapp" in home_html
+    assert "https://apps.apple.com/in/app/tata-power-ez-charge/id1496350476" in home_html
     assert "https://linktr.ee/Tata_Power_EZ_Charge" in home_html
 
     # 2. All local EV photography and SVG logo serve HTTP 200 cleanly

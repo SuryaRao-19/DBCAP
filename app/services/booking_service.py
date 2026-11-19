@@ -4,6 +4,8 @@ EV Charging Station Management System - DBMS Capstone Project
 """
 from datetime import datetime
 from app.db import query_all, query_one, execute, transaction
+from app.services.qr_service import get_or_create_booking_qr
+from app.services.customer_service import add_notification
 
 
 def create_booking(user_id, vehicle_id, point_id, start_at, end_at):
@@ -29,18 +31,21 @@ def create_booking(user_id, vehicle_id, point_id, start_at, end_at):
 
     # 2. Verify Vehicle belongs to authenticated User
     veh = query_one(
-        "SELECT vehicle_id FROM Vehicles WHERE vehicle_id = %s AND user_id = %s",
+        "SELECT vehicle_id, make, model, registration_no, battery_capacity_kwh "
+        "FROM Vehicles WHERE vehicle_id = %s AND user_id = %s",
         (vehicle_id, user_id)
     )
     if not veh:
         return None, "Selected vehicle does not belong to your account."
 
     # 3. Concurrency-safe atomic transaction with row locking
+    station_info = {}
     try:
         with transaction() as cur:
             # Acquire exclusive lock on the charging point row
             cur.execute(
-                "SELECT cp.point_id, cp.point_status, s.station_status "
+                "SELECT cp.point_id, cp.point_code, cp.tariff_per_kwh, cp.max_power_kw, "
+                "       cp.point_status, s.station_id, s.station_name, s.station_status "
                 "FROM ChargingPoints cp "
                 "JOIN Stations s ON s.station_id = cp.station_id "
                 "WHERE cp.point_id = %s FOR UPDATE",
@@ -65,14 +70,48 @@ def create_booking(user_id, vehicle_id, point_id, start_at, end_at):
             if overlap:
                 return None, "This charging point already has a confirmed reservation during this time window."
 
+            duration_hours = max(0.25, (end_dt - start_dt).total_seconds() / 3600.0)
+            power_kw = float(point.get("max_power_kw") or 22.0)
+            tariff = float(point.get("tariff_per_kwh") or 18.0)
+            batt_cap = float(veh.get("battery_capacity_kwh") or 50.0)
+            est_kwh = round(min(power_kw * duration_hours, batt_cap * 1.2), 2)
+            est_cost = round(est_kwh * tariff, 2)
+
+            station_info = {
+                "station_name": point["station_name"],
+                "point_code": point["point_code"],
+                "est_cost": est_cost,
+                "est_kwh": est_kwh,
+            }
+
             # Insert booking atomically
             cur.execute(
-                "INSERT INTO Bookings (user_id, vehicle_id, point_id, start_at, end_at, booking_status) "
-                "VALUES (%s, %s, %s, %s, %s, 'CONFIRMED')",
-                (user_id, vehicle_id, point_id, start_dt, end_dt)
+                "INSERT INTO Bookings (user_id, vehicle_id, point_id, start_at, end_at, "
+                "                     estimated_energy_kwh, estimated_cost, booking_status) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, 'CONFIRMED')",
+                (user_id, vehicle_id, point_id, start_dt, end_dt, est_kwh, est_cost)
             )
             booking_id = cur.lastrowid
-            return booking_id, None
+
+        # Generate QR code outside lock
+        try:
+            get_or_create_booking_qr(booking_id)
+        except Exception:
+            pass
+
+        # Send in-app notification
+        try:
+            add_notification(
+                user_id=user_id,
+                title="Booking Confirmed",
+                message=f"Slot reserved at {station_info.get('station_name')} ({station_info.get('point_code')}) for {veh.get('registration_no')}. Estimated: ₹{station_info.get('est_cost', 0.0):.2f}.",
+                category="BOOKING",
+                link_url=f"/customer/bookings#{booking_id}",
+            )
+        except Exception:
+            pass
+
+        return booking_id, None
 
     except Exception as e:
         err_msg = str(e)
@@ -137,4 +176,15 @@ def cancel_booking(booking_id, user_id=None):
         "UPDATE Bookings SET booking_status = 'CANCELLED' WHERE booking_id = %s",
         (booking_id,)
     )
+    if user_id:
+        try:
+            add_notification(
+                user_id=user_id,
+                title="Booking Cancelled",
+                message=f"Reservation #{booking_id} has been cancelled successfully.",
+                category="BOOKING",
+                link_url="/customer/bookings",
+            )
+        except Exception:
+            pass
     return True, None

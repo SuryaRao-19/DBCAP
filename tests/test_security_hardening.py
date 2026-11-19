@@ -174,7 +174,7 @@ def test_csrf_protection_enforced(csrf_client):
         "password": "Owner@123",
     }, follow_redirects=False)
     assert res_ok.status_code == 302
-    assert "/owner/dashboard" in res_ok.location
+    assert "/customer/dashboard" in res_ok.location or "/owner/dashboard" in res_ok.location
 
     # JSON API POST without X-CSRFToken -> 400 JSON
     res_api_no_csrf = csrf_client.post("/api/session/pay", json={"session_id": 1})

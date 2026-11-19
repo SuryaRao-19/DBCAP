@@ -11,7 +11,9 @@ def get_admin_dashboard_metrics():
     station_stats = query_one(
         "SELECT "
         "COUNT(*) AS total_stations, "
-        "COALESCE(SUM(CASE WHEN station_status = 'ACTIVE' THEN 1 ELSE 0 END), 0) AS active_stations "
+        "COALESCE(SUM(CASE WHEN station_status = 'ACTIVE' THEN 1 ELSE 0 END), 0) AS active_stations, "
+        "COALESCE(SUM(CASE WHEN verification_status = 'VERIFIED' THEN 1 ELSE 0 END), 0) AS verified_stations, "
+        "COALESCE(SUM(CASE WHEN verification_status IN ('PENDING_VERIFICATION', 'PENDING_REVIEW') THEN 1 ELSE 0 END), 0) AS pending_verification_stations "
         "FROM Stations"
     )
 
@@ -25,8 +27,12 @@ def get_admin_dashboard_metrics():
     )
 
     total_users = query_one("SELECT COUNT(*) AS cnt FROM Users WHERE role = 'OWNER'")["cnt"]
+    total_all_users = query_one("SELECT COUNT(*) AS cnt FROM Users")["cnt"]
+    demo_users = query_one("SELECT COUNT(*) AS cnt FROM Users WHERE is_demo = 1")["cnt"]
     total_vehicles = query_one("SELECT COUNT(*) AS cnt FROM Vehicles")["cnt"]
     total_bookings = query_one("SELECT COUNT(*) AS cnt FROM Bookings")["cnt"]
+    total_payments = query_one("SELECT COUNT(*) AS cnt FROM Payments")["cnt"]
+    new_enquiries = query_one("SELECT COUNT(*) AS cnt FROM ContactMessages WHERE submission_status = 'NEW'")["cnt"]
 
     session_stats = query_one(
         "SELECT "
@@ -39,19 +45,26 @@ def get_admin_dashboard_metrics():
 
     revenue_stats = query_one(
         "SELECT COALESCE(SUM(amount), 0) AS total_revenue "
-        "FROM Payments WHERE payment_status = 'SUCCESS'"
+        "FROM Payments WHERE payment_status IN ('SUCCESS', 'CAPTURED')"
     )
 
     return {
         "total_stations": int(station_stats["total_stations"] or 0),
         "active_stations": int(station_stats["active_stations"] or 0),
+        "verified_stations": int(station_stats["verified_stations"] or 0),
+        "pending_verification_stations": int(station_stats["pending_verification_stations"] or 0),
         "total_points": int(point_stats["total_points"] or 0),
         "available_points": int(point_stats["available_points"] or 0),
         "occupied_points": int(point_stats["occupied_points"] or 0),
         "offline_points": int(point_stats["offline_points"] or 0),
         "total_users": int(total_users or 0),
+        "total_all_users": int(total_all_users or 0),
+        "demo_users": int(demo_users or 0),
+        "live_users": int((total_all_users or 0) - (demo_users or 0)),
         "total_vehicles": int(total_vehicles or 0),
         "total_bookings": int(total_bookings or 0),
+        "total_payments": int(total_payments or 0),
+        "new_enquiries": int(new_enquiries or 0),
         "total_sessions": int(session_stats["total_sessions"] or 0),
         "active_sessions": int(session_stats["active_sessions"] or 0),
         "completed_sessions": int(session_stats["completed_sessions"] or 0),
@@ -156,6 +169,7 @@ def get_system_health():
         "Users",
         "Vehicles",
         "Stations",
+        "StationQRCodes",
         "ChargingPoints",
         "Bookings",
         "ChargingSessions",
@@ -223,7 +237,7 @@ def get_system_health():
 
 
 def get_admin_chart_analytics():
-    """Real MySQL database chart series for Admin Dashboard visualizations."""
+    """Real MySQL database chart series for all 7 Admin Dashboard visualizations."""
     stations_by_city = query_all(
         "SELECT city, COUNT(*) AS count "
         "FROM Stations WHERE approval_status = 'APPROVED' "
@@ -233,14 +247,32 @@ def get_admin_chart_analytics():
         "SELECT connector_type, COUNT(*) AS count, ROUND(SUM(max_power_kw), 1) AS total_kw "
         "FROM ChargingPoints GROUP BY connector_type ORDER BY count DESC"
     )
+    charger_capacity_dist = query_all(
+        "SELECT "
+        "CASE "
+        "  WHEN max_power_kw < 25 THEN 'AC Slow/Fast (<25 kW)' "
+        "  WHEN max_power_kw < 100 THEN 'DC Fast (25-99 kW)' "
+        "  ELSE 'Ultra-Fast (100+ kW)' "
+        "END AS tier, COUNT(*) AS count "
+        "FROM ChargingPoints GROUP BY tier ORDER BY count DESC"
+    )
     monthly_bookings = query_all(
         "SELECT DATE_FORMAT(start_at, '%%Y-%%m') AS month, COUNT(*) AS count "
         "FROM Bookings GROUP BY DATE_FORMAT(start_at, '%%Y-%%m') "
         "ORDER BY month ASC LIMIT 12"
     )
+    monthly_sessions = query_all(
+        "SELECT DATE_FORMAT(start_at, '%%Y-%%m') AS month, COUNT(*) AS count, "
+        "       COALESCE(ROUND(SUM(energy_kwh), 1), 0) AS total_kwh "
+        "FROM ChargingSessions GROUP BY DATE_FORMAT(start_at, '%%Y-%%m') "
+        "ORDER BY month ASC LIMIT 12"
+    )
     payment_status_counts = query_all(
         "SELECT payment_status, COUNT(*) AS count, COALESCE(SUM(amount), 0) AS total_amount "
         "FROM Payments GROUP BY payment_status ORDER BY count DESC"
+    )
+    enquiry_status_counts = query_all(
+        "SELECT submission_status AS status, COUNT(*) AS count FROM ContactMessages GROUP BY submission_status ORDER BY count DESC"
     )
     return {
         "stations_by_city": [{"city": r["city"], "count": int(r["count"])} for r in stations_by_city],
@@ -248,7 +280,12 @@ def get_admin_chart_analytics():
             {"connector_type": r["connector_type"], "count": int(r["count"]), "total_kw": float(r["total_kw"] or 0)}
             for r in chargers_by_type
         ],
+        "charger_capacity_dist": [{"tier": r["tier"], "count": int(r["count"])} for r in charger_capacity_dist],
         "monthly_bookings": [{"month": r["month"], "count": int(r["count"])} for r in monthly_bookings],
+        "monthly_sessions": [
+            {"month": r["month"], "count": int(r["count"]), "total_kwh": float(r["total_kwh"] or 0)}
+            for r in monthly_sessions
+        ],
         "payment_status_counts": [
             {"payment_status": r["payment_status"], "count": int(r["count"]), "total_amount": float(r["total_amount"] or 0)}
             for r in payment_status_counts
@@ -256,5 +293,9 @@ def get_admin_chart_analytics():
         "booking_statuses": [
             {"booking_status": r["booking_status"], "count": int(r["count"])}
             for r in get_booking_status_distribution()
+        ],
+        "enquiry_statuses": [
+            {"status": r["status"], "count": int(r["count"])}
+            for r in enquiry_status_counts
         ],
     }

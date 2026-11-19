@@ -51,6 +51,11 @@ git push -u origin main
 | `SUPABASE_URL` | Optional (inactive under MySQL) | Optional Supabase project URL (never used for MySQL DB auth) |
 | `SUPABASE_PUBLISHABLE_KEY` | Optional (inactive under MySQL) | Public client key only; never replaces Flask RBAC/IDOR checks |
 | `GOOGLE_MAPS_API_KEY` | Optional | Google Maps JS API key (restricted by HTTP referrer; falls back to Leaflet/OpenStreetMap when omitted) |
+| `GOOGLE_CLIENT_ID` | Optional (for Google Login) | Google Cloud OAuth 2.0 Web Client ID |
+| `GOOGLE_CLIENT_SECRET` | Optional (for Google Login) | Google Cloud OAuth 2.0 Client Secret (server-side only; never exposed to client JS) |
+| `GOOGLE_REDIRECT_URI` | Optional (for Google Login) | `https://<your-app>.vercel.app/auth/google/callback` (defaults to dynamic HTTPS callback URI when omitted) |
+| `OPEN_CHARGE_MAP_API_KEY` | Optional (for OCM POI Sync) | Free Open Charge Map API v3 key (`X-API-Key` header; sync safely reports unconfigured when blank) |
+| `NOMINATIM_USER_AGENT` | Optional (has default) | `EZChargeNetworkPortal/1.0 (contact@example.com)` per OpenStreetMap Nominatim policy |
 | `MYSQL_POOL_MAX_CONNECTIONS` | Optional | `5` (recommended for serverless) |
 
 > **Razorpay Webhook URL (if configuring Razorpay Dashboard Test Mode):** Point webhooks to `https://<your-app>.vercel.app/api/payments/razorpay/webhook` for `payment.captured`, `payment.failed`, and `order.paid`, and copy the signing secret into `RAZORPAY_WEBHOOK_SECRET`. Never configure `rzp_live_*` keys on this academic demonstration deployment.

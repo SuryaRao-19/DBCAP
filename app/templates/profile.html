@@ -49,24 +49,39 @@
       </div>
 
       <div style="margin-top: 2rem; padding-top: 1.25rem; border-top: 1px solid var(--border-color);">
-        <h3 style="margin-bottom: 1rem; font-size: 1.1rem;">Security & Password Change</h3>
-        <p class="text-muted" style="font-size: 0.85rem; margin-bottom: 1rem;">
-          Leave these password fields blank if you do not wish to update your login password.
-        </p>
+        <h3 style="margin-bottom: 0.75rem; font-size: 1.1rem;">Security &amp; Password Change</h3>
+        {% if user.has_password %}
+          <p class="text-muted" style="font-size: 0.85rem; margin-bottom: 1rem;">
+            Leave these password fields blank if you do not wish to update your login password.
+          </p>
+
+          <div class="form-group">
+            <label class="form-label" for="current_password">Current Password</label>
+            <div class="password-input-wrap">
+              <input type="password" id="current_password" name="current_password" class="form-control" placeholder="Enter current password to verify">
+              <button type="button" class="password-eye-btn" onclick="togglePasswordVisibility('current_password', this)">Show</button>
+            </div>
+          </div>
+        {% else %}
+          <p class="text-muted" style="font-size: 0.85rem; margin-bottom: 1rem;">
+            You signed up with Google Sign-In. You can optionally set a local password below to enable hybrid sign-in.
+          </p>
+        {% endif %}
 
         <div class="form-group">
-          <label class="form-label">Current Password</label>
-          <input type="password" name="current_password" class="form-control" placeholder="Enter current password to verify">
+          <label class="form-label" for="new_password">New Password</label>
+          <div class="password-input-wrap">
+            <input type="password" id="new_password" name="new_password" class="form-control" placeholder="Minimum 6 characters">
+            <button type="button" class="password-eye-btn" onclick="togglePasswordVisibility('new_password', this)">Show</button>
+          </div>
         </div>
 
         <div class="form-group">
-          <label class="form-label">New Password</label>
-          <input type="password" name="new_password" class="form-control" placeholder="Minimum 6 characters">
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">Confirm New Password</label>
-          <input type="password" name="confirm_new_password" class="form-control" placeholder="Repeat new password">
+          <label class="form-label" for="confirm_new_password">Confirm New Password</label>
+          <div class="password-input-wrap">
+            <input type="password" id="confirm_new_password" name="confirm_new_password" class="form-control" placeholder="Repeat new password">
+            <button type="button" class="password-eye-btn" onclick="togglePasswordVisibility('confirm_new_password', this)">Show</button>
+          </div>
         </div>
       </div>
 
@@ -97,10 +112,21 @@
         </div>
 
         <div class="card" style="background: rgba(255, 255, 255, 0.02); padding: 1rem;">
-          <strong style="color: var(--accent-cyan);">Database Security (Phase 4)</strong>
+          <strong style="color: var(--accent-cyan);">Sign-In Provider &amp; Security</strong>
           <p class="text-muted" style="font-size: 0.85rem; margin-top: 0.25rem;">
-            Passwords are cryptographically hashed using PBKDF2 / scrypt before storage. Session cookies are secured with <code>HttpOnly</code> and <code>SameSite=Lax</code> protections.
+            Provider: <strong>{{ user.auth_provider or 'LOCAL' }}</strong> &bull;
+            Email Verified: <strong>{{ 'Yes' if user.email_verified else 'Pending' }}</strong>
+            {% if user.last_login %}<br>Last Login: {{ user.last_login }}{% endif %}
           </p>
+          {% if not user.google_linked %}
+            {% if google_oauth_enabled %}
+              <a href="{{ url_for('auth.google_link') }}" class="btn btn-secondary btn-sm" style="margin-top: 0.5rem;">Link Verified Google Account</a>
+            {% else %}
+              <div class="text-dim" style="font-size: 0.78rem; margin-top: 0.4rem;">Google linking available once <code>GOOGLE_CLIENT_ID</code> &amp; <code>GOOGLE_CLIENT_SECRET</code> are configured.</div>
+            {% endif %}
+          {% else %}
+            <span class="badge badge-available" style="margin-top: 0.4rem;">Google Account Linked</span>
+          {% endif %}
         </div>
       </div>
     </div>

@@ -1,66 +1,101 @@
 """
-Platform Identity, Verified Operator Reference, Social Links & Data Sources Service
-EV Charging Station Management System
+Platform Identity, Verified Operator Reference, Social Links & Data Provenance Service
+EZ Charge Network Portal — Independent Academic Demonstration
 """
 from app.db import query_all, query_one, execute
 
-VALID_DATA_STATUSES = ("VERIFIED", "DEMO", "ESTIMATED", "UNAVAILABLE")
+VALID_DATA_STATUSES = (
+    "VERIFIED",
+    "PENDING_VERIFICATION",
+    "HISTORICAL",
+    "DEMO",
+    "ESTIMATED",
+    "UNAVAILABLE",
+    "OUTDATED",
+)
 
-# Verified Tata Power EZ Charge public scale disclosures (sourced from tatapower.com/ezcharge)
+# Verified Tata Power EV Charging Scale (12 October 2026 Press Release Baseline)
+# Source conflict note: Earlier tatapower.com/ezcharge web snapshots list 5,500+ public points
+# and 620+ cities under an earlier publication date/scope; both are disclosed without fabrication.
 OFFICIAL_EZCHARGE_STATS = [
     {
-        "value": "5,500+",
-        "label": "Public & Captive Charging Points",
-        "source_label": "Tata Power EZ Charge Portal",
-        "source_url": "https://www.tatapower.com/ezcharge/",
-        "verified_date": "2026-04-08",
+        "value": "6,700+",
+        "label": "Public, Semi-Public & Fleet Charging Points",
+        "source_label": "Tata Power EV Charging Press Release",
+        "source_url": "https://www.tatapower.com/news-and-media/media-releases",
+        "published_date": "2026-10-12",
+        "verified_date": "2026-11-12",
+        "scope_note": "Includes public, semi-public & fleet AC/DC points nationwide.",
     },
     {
-        "value": "620+",
-        "label": "Cities & Towns Covered (700+ target reach)",
-        "source_label": "Tata Power EZ Charge Portal",
-        "source_url": "https://www.tatapower.com/ezcharge/",
-        "verified_date": "2026-04-08",
-    },
-    {
-        "value": "1.2 Lakh+",
-        "label": "Residential Home Chargers Deployed",
-        "source_label": "Tata Power EZ Charge Portal",
-        "source_url": "https://www.tatapower.com/ezcharge/",
-        "verified_date": "2026-04-08",
+        "value": "2.5 Lakh+",
+        "label": "Home Chargers Installed Across India",
+        "source_label": "Tata Power EV Charging Press Release",
+        "source_url": "https://www.tatapower.com/news-and-media/media-releases",
+        "published_date": "2026-10-12",
+        "verified_date": "2026-11-12",
+        "scope_note": "Residential wallbox & home installation cumulative baseline.",
     },
     {
         "value": "1,200+",
-        "label": "Commercial E-Bus Charging Points",
-        "source_label": "Tata Power EZ Charge Portal",
-        "source_url": "https://www.tatapower.com/ezcharge/",
-        "verified_date": "2026-04-08",
+        "label": "E-Bus Fleet Charging Points",
+        "source_label": "Tata Power EV Charging Press Release",
+        "source_url": "https://www.tatapower.com/news-and-media/media-releases",
+        "published_date": "2026-10-12",
+        "verified_date": "2026-11-12",
+        "scope_note": "Heavy-duty municipal and electric bus depot points.",
+    },
+    {
+        "value": "7 Lakh+",
+        "label": "Registered Customers",
+        "source_label": "Tata Power EV Charging Press Release",
+        "source_url": "https://www.tatapower.com/news-and-media/media-releases",
+        "published_date": "2026-10-12",
+        "verified_date": "2026-11-12",
+        "scope_note": "Reported registered user base on Tata Power EZ Charge platform.",
+    },
+    {
+        "value": "700+",
+        "label": "Cities & Towns Covered Pan-India",
+        "source_label": "Tata Power EV Charging Press Release",
+        "source_url": "https://www.tatapower.com/ezcharge",
+        "published_date": "2026-10-12",
+        "verified_date": "2026-11-12",
+        "scope_note": "Historical web portal snapshots cite 5,500+ points / 620+ cities from earlier dates.",
     },
 ]
 
-# Official Tata Power EZ Charge & corporate milestones (sourced from tatapower.com / tatamotors.com)
+# Official Tata Power corporate announcements (no invented news items)
 VERIFIED_ANNOUNCEMENTS = [
     {
-        "title": "700+ Cities Pan-India EV Charging Footprint",
-        "date": "Verified Official Network Metric",
-        "summary": "Tata Power EZ Charge reports presence across 700+ cities and towns with home, public AC/DC, highway, and e-bus charging points.",
+        "title": "6,700+ Charging Points & 2.5 Lakh+ Home Chargers Nationwide Milestone",
+        "date": "2026-10-12",
+        "summary": "Tata Power reported scaling its EZ Charge ecosystem past 6,700+ public/semi-public/fleet charging points, 2.5 lakh+ home chargers, 1,200+ e-bus points, and 7 lakh+ registered customers across 700+ cities & towns.",
+        "source_name": "Tata Power Official Press Release",
+        "source_url": "https://www.tatapower.com/news-and-media/media-releases",
+        "status": "VERIFIED",
+    },
+    {
+        "title": "Yamuna Expressway High-Capacity DC Mega Charging Corridors",
+        "date": "2026-09-01",
+        "summary": "Tata Power announced high-speed 120 kW & 60 kW multi-gun charging stations at Yamuna Expressway LHS 35 KM, LHS 107 KM, RHS 100 KM, and RHS 16 KM milestones (coordinates flagged PENDING_VERIFICATION in this portal until GPS verified).",
+        "source_name": "Tata Power Highway Corridor Release",
+        "source_url": "https://www.tatapower.com/news-and-media/media-releases",
+        "status": "VERIFIED",
+    },
+    {
+        "title": "Dr. Ambedkar International Centre Public EV Charging Installation",
+        "date": "2023-04-01",
+        "summary": "Public EV charging facility inaugurated at 15, Janpath, New Delhi in collaboration with the Dr. Ambedkar Foundation to expand central Delhi e-mobility access.",
         "source_name": "Tata Power EZ Charge Portal",
-        "source_url": "https://www.tatapower.com/ezcharge/",
+        "source_url": "https://www.tatapower.com/ezcharge",
         "status": "VERIFIED",
     },
     {
-        "title": "Metro Commercial EV Fast-Charging Corridor Expansion",
-        "date": "September 2024 Release",
-        "summary": "Tata Power Renewable Energy & Tata Motors announced dedicated commercial EV fast-charging hubs across Delhi, Mumbai, Bengaluru, Chennai, and Kolkata.",
-        "source_name": "Tata Motors / Tata Power Announcement",
-        "source_url": "https://www.tatapower.com/ezcharge/",
-        "status": "VERIFIED",
-    },
-    {
-        "title": "Academic Case Study & Demo Portal Boundary",
-        "date": "Platform Notice",
-        "summary": "EV ChargeNet showcases real Delhi NCR station addresses and Tata Power public facts, while reservations, kWh metering, and billing run in sandboxed MySQL Demo Mode.",
-        "source_name": "EV ChargeNet Integrity Policy",
+        "title": "Academic Portal Simulation & Hardware Separation Policy",
+        "date": "2026-11-12",
+        "summary": "EZ Charge Network Portal is an independent academic demonstration: real Tata Power locations & press figures are source-attributed, while bookings, QR scans, metering, and Razorpay Test Mode billing run in local MySQL sandbox mode.",
+        "source_name": "EZ Charge Network Portal Integrity Policy",
         "source_url": None,
         "status": "DEMO",
     },
@@ -70,15 +105,14 @@ VERIFIED_ANNOUNCEMENTS = [
 def get_platform_operator():
     """Retrieve verified reference operator profile from MySQL."""
     try:
-        op = query_one(
+        return query_one(
             "SELECT operator_id, operator_name, parent_company, official_website, "
-            "       play_store_url, linktree_url, support_phone, support_email, "
+            "       play_store_url, app_store_url, linktree_url, support_phone, support_email, "
             "       network_scale_summary, cities_coverage_summary, mission_text, vision_text, "
             "       services_summary, is_independent_case_study, verification_status, "
             "       source_url, last_verified_at "
             "FROM NetworkOperators ORDER BY operator_id LIMIT 1"
         )
-        return op
     except Exception:
         return None
 
@@ -88,19 +122,21 @@ def get_verified_social_links():
     try:
         return query_all(
             "SELECT social_id, platform, display_label, handle, url, verification_status, source_url, last_verified_at "
-            "FROM SocialLinks ORDER BY FIELD(platform, 'WEBSITE', 'LINKEDIN', 'X_TWITTER', 'INSTAGRAM', 'YOUTUBE', 'FACEBOOK')"
+            "FROM SocialLinks ORDER BY FIELD(platform, 'INSTAGRAM', 'FACEBOOK', 'LINKEDIN', 'X_TWITTER', 'YOUTUBE', 'WEBSITE')"
         )
     except Exception:
         return []
 
 
 def get_data_sources():
-    """Retrieve the complete Data Source Register ordered by status and item."""
+    """Retrieve the complete Data Source Register with full provenance fields."""
     try:
         return query_all(
-            "SELECT source_id, data_item, source_name, source_url, verification_date, "
-            "       data_status, notes, last_updated "
-            "FROM DataSources ORDER BY FIELD(data_status, 'VERIFIED', 'ESTIMATED', 'DEMO', 'UNAVAILABLE'), source_id"
+            "SELECT source_id, data_item, category, source_name, source_type, source_url, "
+            "       published_at, retrieved_at, verification_date, data_status, "
+            "       confidence_level, record_origin, associated_record_count, notes, last_updated "
+            "FROM DataSources "
+            "ORDER BY FIELD(data_status, 'VERIFIED', 'PENDING_VERIFICATION', 'ESTIMATED', 'DEMO', 'HISTORICAL', 'UNAVAILABLE', 'OUTDATED'), source_id"
         )
     except Exception:
         return []
@@ -121,4 +157,3 @@ def update_data_source(source_id, data_status, notes=None):
         (normalized, notes.strip() if notes else None, source_id),
     )
     return True, f"Data source #{source_id} updated to {normalized}."
-

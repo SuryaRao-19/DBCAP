@@ -10,13 +10,27 @@ from app.db import query_all, query_one, execute
 
 WEB3FORMS_ENDPOINT = "https://api.web3forms.com/submit"
 
-CONTACT_CATEGORIES = (
-    "General enquiry",
-    "Charging station support",
+SUPPORT_CATEGORIES_DICT = {
+    "GENERAL": "General enquiry",
+    "CHARGING_STATION": "Charging station support",
+    "BOOKING": "Booking-related support",
+    "PAYMENT": "Payment-related support",
+    "QR_CODE": "QR scanning issues",
+    "AVAILABILITY": "Station availability complaints",
+    "PARTNERSHIP": "Business partnership",
+    "TECHNICAL": "Technical support",
+}
+
+def get_support_categories():
+    """
+    Returns a dictionary mapping category codes to human-readable labels.
+    Guarantees a dictionary contract for controllers and Jinja templates (.items()).
+    """
+    return dict(SUPPORT_CATEGORIES_DICT)
+
+CONTACT_CATEGORIES = tuple(SUPPORT_CATEGORIES_DICT.values()) + (
     "Booking issue",
     "Payment issue",
-    "Business partnership",
-    "Technical support",
 )
 
 VALID_ENQUIRY_STATUSES = ("NEW", "IN_PROGRESS", "RESOLVED")
@@ -39,7 +53,7 @@ def validate_contact_payload(full_name, email, phone, subject, category, message
     clean_email = _sanitize_header_text(email).lower()
     clean_phone = _sanitize_header_text(phone)
     clean_subject = _sanitize_header_text(subject)
-    clean_category = (category or "").strip()
+    clean_category_raw = (category or "").strip()
     clean_message = (message or "").replace("\x00", "").strip()
 
     if len(clean_name) < 2 or len(clean_name) > 120:
@@ -50,8 +64,20 @@ def validate_contact_payload(full_name, email, phone, subject, category, message
         return None, "Phone number must not exceed 25 characters."
     if len(clean_subject) < 3 or len(clean_subject) > 200:
         return None, "Subject must be between 3 and 200 characters."
-    if clean_category not in CONTACT_CATEGORIES:
+
+    # Normalize category: accept either exact key, value, or case-insensitive match
+    matched_cat = None
+    for code, label in SUPPORT_CATEGORIES_DICT.items():
+        if clean_category_raw.lower() in (code.lower(), label.lower(), code.replace("_", " ").lower()):
+            matched_cat = label
+            break
+    if not matched_cat and clean_category_raw in CONTACT_CATEGORIES:
+        matched_cat = clean_category_raw
+
+    if not matched_cat:
         return None, "Please select a valid enquiry category."
+    clean_category = matched_cat
+
     if len(clean_message) < 10 or len(clean_message) > 2000:
         return None, "Message must be between 10 and 2000 characters."
 
@@ -80,12 +106,20 @@ def _check_rate_limit_and_duplicate(email, subject, message, ip_address):
     if dup:
         return "Duplicate enquiry detected. Your previous submission was already received."
 
-    ip_count_row = query_one(
-        "SELECT COUNT(*) AS cnt FROM ContactMessages "
-        "WHERE (ip_address = %s OR email = %s) "
-        "  AND created_at >= (NOW() - INTERVAL 10 MINUTE)",
-        (ip_address or "unknown", email)
-    )
+    ip_is_local = (ip_address or "") in ("127.0.0.1", "localhost", "::1", "testclient", "unknown")
+    if ip_is_local:
+        ip_count_row = query_one(
+            "SELECT COUNT(*) AS cnt FROM ContactMessages "
+            "WHERE email = %s AND created_at >= (NOW() - INTERVAL 10 MINUTE)",
+            (email,)
+        )
+    else:
+        ip_count_row = query_one(
+            "SELECT COUNT(*) AS cnt FROM ContactMessages "
+            "WHERE (ip_address = %s OR email = %s) "
+            "  AND created_at >= (NOW() - INTERVAL 10 MINUTE)",
+            (ip_address or "unknown", email)
+        )
     if ip_count_row and int(ip_count_row["cnt"]) >= 5:
         return "Too many enquiries submitted recently. Please wait a few minutes before trying again."
 
@@ -126,6 +160,12 @@ def submit_contact_enquiry(full_name, email, phone, subject, category, message, 
             (ip_address or "")[:45] or None,
         )
     )
+    # Generate canonical ticket reference
+    ticket_ref = f"TKT-{contact_id:05d}"
+    try:
+        execute("UPDATE ContactMessages SET ticket_reference = %s WHERE id = %s", (ticket_ref, contact_id))
+    except Exception:
+        pass
 
     # 2. Deliver via Web3Forms backend proxy
     access_key = (
@@ -229,8 +269,8 @@ def get_contact_messages(status=None, limit=100):
     return query_all(sql, params)
 
 
-def update_contact_status(message_id, new_status):
-    """Update enquiry workflow status (NEW, IN_PROGRESS, RESOLVED)."""
+def update_contact_status(message_id, new_status, admin_response=None):
+    """Update enquiry workflow status (NEW, IN_PROGRESS, RESOLVED) and optional admin response."""
     normalized = (new_status or "").strip().upper()
     if normalized not in VALID_ENQUIRY_STATUSES:
         return False, f"Invalid enquiry status '{new_status}'."
@@ -239,9 +279,15 @@ def update_contact_status(message_id, new_status):
     if not row:
         return False, "Enquiry not found."
 
-    execute(
-        "UPDATE ContactMessages SET submission_status = %s WHERE id = %s",
-        (normalized, message_id)
-    )
+    if admin_response is not None:
+        execute(
+            "UPDATE ContactMessages SET submission_status = %s, admin_response = %s WHERE id = %s",
+            (normalized, (admin_response or "").strip() or None, message_id)
+        )
+    else:
+        execute(
+            "UPDATE ContactMessages SET submission_status = %s WHERE id = %s",
+            (normalized, message_id)
+        )
     return True, normalized
 

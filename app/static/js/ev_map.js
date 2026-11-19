@@ -48,7 +48,7 @@
         <div style="font-size:12px;color:#475569;margin-bottom:6px;">${escapeHtml(st.address)}${st.postal_code ? " — " + escapeHtml(st.postal_code) : ""}</div>
         <div style="font-size:12px;"><strong>Operator:</strong> ${escapeHtml(st.operator_name || "Tata Power EZ Charge")}</div>
         <div style="font-size:12px;"><strong>Connectors:</strong> ${escapeHtml(st.connector_types || "CCS2")} (${escapeHtml(st.charger_capacity_kw || "DC/AC")})</div>
-        <div style="font-size:12px;"><strong>Points:</strong> ${Number(st.available_points || 0)} / ${Number(st.total_points || 0)} Free (Demo State)</div>
+        <div style="font-size:12px;"><strong>Points:</strong> ${Number(st.available_points || 0)} / ${Number(st.total_points || 0)} &mdash; Availability not connected (demonstration data)</div>
         <div style="font-size:11px;color:#64748b;margin-top:4px;"><strong>Facilities:</strong> ${facs}</div>
         ${distLine}
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">

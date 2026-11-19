@@ -2,13 +2,22 @@
 Public Portal Routes, Brand Reference, Map Discovery & Web3Forms Contact
 EV Charging Station Management System
 """
-from flask import Blueprint, render_template, request, redirect, url_for, flash, session
-from app.routes.auth_middleware import login_required, get_current_user_id
-from app.services.station_service import get_all_stations, get_station_by_id, get_all_charging_points
+from flask import Blueprint, render_template, request, redirect, url_for, flash, session, Response, abort
+from app.routes.auth_middleware import login_required, role_required, get_current_user_id
+from app.services.station_service import get_all_stations, get_station_by_id, get_station_by_slug, get_all_charging_points
+from app.services.qr_service import (
+    record_qr_scan_by_token,
+    get_or_create_station_qr,
+    render_qr_png_bytes,
+    record_point_qr_scan_by_token,
+    get_booking_qr_by_token,
+    mark_booking_qr_verified,
+)
 from app.services.report_service import get_admin_dashboard_metrics
 from app.services.auth_service import get_user_profile, update_user_profile
 from app.services.contact_service import CONTACT_CATEGORIES, submit_contact_enquiry
 from app.services.platform_service import VERIFIED_ANNOUNCEMENTS, OFFICIAL_EZCHARGE_STATS, get_data_sources
+from app.services.api_health_service import get_station_provenance_meta, get_api_integration_overview
 
 public_bp = Blueprint("public", __name__)
 
@@ -74,8 +83,12 @@ def about():
 
 @public_bp.route("/data-sources")
 def data_sources():
-    """Public Data Source Register documenting VERIFIED vs DEMO vs ESTIMATED vs UNAVAILABLE facts."""
-    return render_template("data_sources.html", sources=get_data_sources())
+    """Public Data Source Register documenting A/B/C/D provenance categories & free API licenses."""
+    return render_template(
+        "data_sources.html",
+        sources=get_data_sources(),
+        api_overview=get_api_integration_overview(),
+    )
 
 
 @public_bp.route("/stations")
@@ -151,7 +164,112 @@ def station_detail(station_id):
         flash("Charging station not found.", "danger")
         return redirect(url_for("public.browse_stations"))
 
-    return render_template("station_detail.html", station=station)
+    prov = get_station_provenance_meta(station["station_id"])
+    if prov:
+        station.update(prov)
+    station_qr = get_or_create_station_qr(station["station_id"])
+    return render_template("station_detail.html", station=station, station_qr=station_qr, qr_verified=False)
+
+
+@public_bp.route("/station/<slug>")
+def station_by_slug(slug):
+    """Canonical opaque/slugged Station Identification page opened directly or via Station QR scan."""
+    station = get_station_by_slug(slug, only_approved=True)
+    if not station:
+        flash("Charging station not found.", "danger")
+        return redirect(url_for("public.browse_stations"))
+
+    prov = get_station_provenance_meta(station["station_id"])
+    if prov:
+        station.update(prov)
+    station_qr = get_or_create_station_qr(station["station_id"])
+    return render_template(
+        "station_detail.html",
+        station=station,
+        station_qr=station_qr,
+        qr_verified=(request.args.get("qr") == "verified"),
+    )
+
+
+@public_bp.route("/qr/station/<token>")
+def scan_station_qr(token):
+    """
+    Public endpoint encoded inside physical Station Identification QR stickers.
+    Validates opaque token (rejecting revoked, expired, or invalid tokens) and opens the station view.
+    """
+    qr_row, err_msg, status_code = record_qr_scan_by_token(token)
+    if err_msg:
+        return render_template("qr_status.html", error_message=err_msg, status_code=status_code), status_code
+
+    slug = qr_row.get("station_slug")
+    if slug:
+        return redirect(url_for("public.station_by_slug", slug=slug, qr="verified"))
+    return redirect(url_for("public.station_detail", station_id=qr_row["station_id"]))
+
+
+@public_bp.route("/qr/station/<token>/image.png")
+def station_qr_image(token):
+    """Serve local PNG image for an active Station Identification QR without incrementing scan telemetry."""
+    base = request.url_root.rstrip("/")
+    scan_url = f"{base}{url_for('public.scan_station_qr', token=token)}"
+    return Response(render_qr_png_bytes(scan_url), mimetype="image/png")
+
+
+@public_bp.route("/qr/point/<token>")
+def scan_point_qr(token):
+    """Public/driver endpoint encoded inside Charging Point Identification QRs."""
+    row, err_msg, status_code = record_point_qr_scan_by_token(token)
+    if err_msg:
+        return render_template("qr_status.html", error_message=err_msg, status_code=status_code), status_code
+    return render_template("qr_point.html", point=row)
+
+
+@public_bp.route("/qr/point/<token>/image.png")
+def point_qr_image(token):
+    """Serve local PNG image for an active Charging Point Identification QR."""
+    base = request.url_root.rstrip("/")
+    scan_url = f"{base}{url_for('public.scan_point_qr', token=token)}"
+    return Response(render_qr_png_bytes(scan_url), mimetype="image/png")
+
+
+@public_bp.route("/qr/booking/<token>")
+@login_required
+def scan_booking_qr(token):
+    """Strict RBAC-scoped Booking Check-In Verification view (customer, owner partner, or ADMIN)."""
+    row = get_booking_qr_by_token(token)
+    if not row:
+        return render_template("qr_status.html", error_message="Invalid Booking QR token.", status_code=404), 404
+    uid = get_current_user_id()
+    user_role = session.get("role")
+    is_admin = (user_role == "ADMIN")
+    is_customer_owner = (row["user_id"] == uid)
+    is_station_partner = (user_role == "OWNER" and row.get("owner_user_id") == uid)
+    if not (is_admin or is_customer_owner or is_station_partner):
+        abort(403)
+    return render_template("qr_booking.html", booking_qr=row, can_checkin=(is_admin or is_station_partner))
+
+
+@public_bp.route("/qr/booking/<token>/checkin", methods=["POST"])
+@login_required
+def checkin_booking_qr(token):
+    """Admin or Station Partner check-in confirmation for a Booking QR."""
+    booking_meta = get_booking_qr_by_token(token)
+    if not booking_meta:
+        return render_template("qr_status.html", error_message="Invalid Booking QR token.", status_code=404), 404
+
+    uid = get_current_user_id()
+    user_role = session.get("role")
+    is_admin = (user_role == "ADMIN")
+    is_station_partner = (user_role == "OWNER" and booking_meta.get("owner_user_id") == uid)
+    if not (is_admin or is_station_partner):
+        abort(403)
+
+    row, err_msg, status_code = mark_booking_qr_verified(token)
+    if err_msg:
+        flash(err_msg, "danger")
+        return redirect(url_for("admin.bookings") if is_admin else url_for("owner.bookings"))
+    flash(f"Booking #{row['booking_id']} check-in QR verified successfully.", "success")
+    return redirect(url_for("public.scan_booking_qr", token=token))
 
 
 @public_bp.route("/profile", methods=["GET", "POST"])
@@ -267,3 +385,15 @@ def contact():
         categories=CONTACT_CATEGORIES,
         form_data=form_data,
     )
+
+
+@public_bp.route("/privacy")
+def privacy():
+    """Academic platform privacy and test-mode data policy."""
+    return render_template("privacy.html")
+
+
+@public_bp.route("/terms")
+def terms():
+    """Academic platform terms, trademark disclaimer & Razorpay test-mode policy."""
+    return render_template("terms.html")

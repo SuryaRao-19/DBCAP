@@ -23,6 +23,7 @@ htmlcov/
 *.log
 database/backups/
 *.dump
+scratch/
 
 # IDE and OS files
 .vscode/

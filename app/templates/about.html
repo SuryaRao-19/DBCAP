@@ -33,7 +33,7 @@
   <div class="card">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
       <span class="integrity-pill integrity-verified">VERIFIED REFERENCE COMPANY</span>
-      <a href="{{ platform_operator.official_website }}" target="_blank" rel="noopener noreferrer" style="font-size:0.8rem;">tatapower.com/ezcharge &nearr;</a>
+      <a href="{{ platform_operator.official_website or 'https://www.tatapower.com/ezcharge' }}" target="_blank" rel="noopener noreferrer" style="font-size:0.8rem;">tatapower.com/ezcharge &nearr;</a>
     </div>
     <h2>{{ platform_operator.operator_name }}</h2>
     <p class="text-muted" style="font-size:0.9rem; margin-bottom:1rem;">
@@ -50,7 +50,8 @@
         <span>Email: {{ platform_operator.support_email }}</span>
       </div>
       <div style="margin-top:0.85rem; display:flex; gap:0.5rem; flex-wrap:wrap;">
-        <a href="{{ platform_operator.play_store_url or 'https://play.google.com/store/apps/details?id=com.tatapower.ezcharge' }}" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm">EZ Charge App (Play Store) &nearr;</a>
+        <a href="https://www.tatapower.com/ezcharge" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm">Official EZ Charge Portal &nearr;</a>
+        <a href="https://www.tatapower.com/" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">Corporate Website &nearr;</a>
         <a href="{{ platform_operator.linktree_url or 'https://linktr.ee/Tata_Power_EZ_Charge' }}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">Official Linktree &nearr;</a>
       </div>
     </div>
@@ -82,6 +83,71 @@
   </div>
 </div>
 {% endif %}
+
+<!-- TATA POWER EV CHARGING ECOSYSTEM -->
+<div class="card" style="margin-bottom:1.5rem; padding:1.75rem;">
+  <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:1rem; margin-bottom:1.25rem;">
+    <div>
+      <span class="section-tag" style="color:var(--accent-cyan); display:flex; align-items:center; gap:0.35rem;">
+        <i class="fa-solid fa-charging-station" aria-hidden="true"></i> REAL-WORLD REFERENCE ECOSYSTEM
+      </span>
+      <h2 style="margin:0.25rem 0 0.35rem 0; font-size:1.45rem;">Tata Power EV Charging Ecosystem Architecture</h2>
+      <p class="text-muted" style="font-size:0.9rem; max-width:80ch; margin:0; line-height:1.55;">
+        As India’s leading integrated electric mobility infrastructure provider, Tata Power deploys multi-segment charging solutions tailored to public transit, intercity travel, residential communities, and commercial enterprises.
+      </p>
+    </div>
+    <div style="display:flex; gap:0.6rem; flex-wrap:wrap;">
+      <a href="https://www.tatapower.com/ezcharge" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm">
+        <i class="fa-solid fa-bolt" aria-hidden="true"></i> Visit Official EZ Charge &nearr;
+      </a>
+      <a href="https://linktr.ee/Tata_Power_EZ_Charge" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">
+        <i class="fa-solid fa-tree" aria-hidden="true"></i> Linktree Directory &nearr;
+      </a>
+    </div>
+  </div>
+
+  <div class="grid-cols-4" style="gap:1rem; margin-bottom:1.5rem;">
+    <div style="padding:1.15rem; background:rgba(255,255,255,0.02); border:1px solid var(--border-color); border-radius:10px;">
+      <div style="font-size:1.35rem; margin-bottom:0.5rem; color:var(--accent-cyan);">⚡</div>
+      <h3 style="font-size:0.98rem; font-weight:700; margin-bottom:0.35rem;">Public DC Fast Charging</h3>
+      <p class="text-muted" style="font-size:0.82rem; line-height:1.5; margin:0;">
+        High-output 25 kW to 60+ kW dual-gun DC chargers (CCS-2 &amp; CHAdeMO) situated on highway corridors, expressways, shopping centers, and urban transit interchanges.
+      </p>
+    </div>
+
+    <div style="padding:1.15rem; background:rgba(255,255,255,0.02); border:1px solid var(--border-color); border-radius:10px;">
+      <div style="font-size:1.35rem; margin-bottom:0.5rem; color:var(--accent-emerald);">🏠</div>
+      <h3 style="font-size:0.98rem; font-weight:700; margin-bottom:0.35rem;">Home &amp; Residential Charging</h3>
+      <p class="text-muted" style="font-size:0.82rem; line-height:1.5; margin:0;">
+        Smart AC wallbox chargers (3.3 kW to 7.4 kW Type 2) engineered for private residences, housing societies, and apartment complexes with safety-certified power metering.
+      </p>
+    </div>
+
+    <div style="padding:1.15rem; background:rgba(255,255,255,0.02); border:1px solid var(--border-color); border-radius:10px;">
+      <div style="font-size:1.35rem; margin-bottom:0.5rem; color:#F59E0B;">🚌</div>
+      <h3 style="font-size:0.98rem; font-weight:700; margin-bottom:0.35rem;">Fleet &amp; E-Bus Depots</h3>
+      <p class="text-muted" style="font-size:0.82rem; line-height:1.5; margin:0;">
+        Megawatt-scale fast-charging infrastructure serving over 1,200+ municipal electric buses, delivery fleets, logistics hubs, and corporate campus transport networks.
+      </p>
+    </div>
+
+    <div style="padding:1.15rem; background:rgba(255,255,255,0.02); border:1px solid var(--border-color); border-radius:10px;">
+      <div style="font-size:1.35rem; margin-bottom:0.5rem; color:#818CF8;">📱</div>
+      <h3 style="font-size:0.98rem; font-weight:700; margin-bottom:0.35rem;">Digital EZ Charge App</h3>
+      <p class="text-muted" style="font-size:0.82rem; line-height:1.5; margin:0;">
+        Comprehensive driver mobile apps (iOS &amp; Android), RFID card authentication, remote session initiation, automated route planning, and 24x7 customer support.
+      </p>
+    </div>
+  </div>
+
+  <!-- Corporate vs Academic Demonstration Distinction -->
+  <div style="padding:1rem 1.25rem; background:rgba(99,102,241,0.06); border:1px solid rgba(99,102,241,0.25); border-radius:10px; font-size:0.85rem; line-height:1.6;">
+    <strong style="color:var(--accent-cyan);">Independent Academic Boundary:</strong>
+    The corporate ecosystem described above is operated commercially by The Tata Power Company Limited.
+    <strong>EV ChargeNet</strong> is an independent academic project demonstrating multi-tenant database design, role-based authorization, REST APIs, QR resolution, and payment gateway workflows using publicly available reference coordinates.
+    EV ChargeNet does not manage or control real company chargers, process actual fiat bank debits, or speak on behalf of Tata Power.
+  </div>
+</div>
 
 <!-- Delhi NCR Verified Coverage Breakdown -->
 <div class="card" style="margin-bottom:1.5rem;">
@@ -121,18 +187,36 @@
   </div>
 
   <div class="card">
-    <h3>Verified Tata Power Official Channels</h3>
-    <p class="text-muted" style="font-size:0.85rem; margin:0.4rem 0 1rem;">
-      Tata Power EZ Charge publishes official announcements, rollout updates, and support guidance via Tata Power’s parent channels:
-    </p>
-    <div class="social-bar">
-      {% for soc in social_links %}
-        <a href="{{ soc.url }}" target="_blank" rel="noopener noreferrer" class="social-pill" aria-label="Tata Power official {{ soc.display_label }} ({{ soc.handle }})">
-          <span>{{ soc.display_label }}</span>
-          <span class="text-muted" style="font-size:0.72rem;">{{ soc.handle }}</span>
-        </a>
-      {% endfor %}
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.4rem;">
+      <h3 style="margin:0;">Verified Tata Power Official Channels</h3>
+      <span class="integrity-pill integrity-verified">OFFICIAL DISCLOSURES</span>
     </div>
+    <p class="text-muted" style="font-size:0.85rem; margin:0.4rem 0 1rem; line-height:1.5;">
+      Tata Power EZ Charge publishes official announcements, rollout updates, and customer support guidelines across Tata Power’s verified corporate handles:
+    </p>
+
+    <!-- Official Social Media Icon & Pill Bar -->
+    <div class="footer-social-strip" style="gap:0.65rem; margin-bottom:1rem;" aria-label="Official Tata Power Channels">
+      <a href="https://www.instagram.com/tatapowercompanyltd/" target="_blank" rel="noopener noreferrer" class="social-icon-btn instagram" aria-label="Visit Tata Power on Instagram (opens in new tab)" title="Instagram @tatapowercompanyltd">
+        <i class="fa-brands fa-instagram" aria-hidden="true"></i>
+      </a>
+      <a href="https://www.facebook.com/tatapower/" target="_blank" rel="noopener noreferrer" class="social-icon-btn facebook" aria-label="Visit Tata Power on Facebook (opens in new tab)" title="Facebook tatapower">
+        <i class="fa-brands fa-facebook-f" aria-hidden="true"></i>
+      </a>
+      <a href="https://x.com/tatapower" target="_blank" rel="noopener noreferrer" class="social-icon-btn x-twitter" aria-label="Visit Tata Power on X (opens in new tab)" title="X (Twitter) @tatapower">
+        <i class="fa-brands fa-x-twitter" aria-hidden="true"></i>
+      </a>
+      <a href="https://www.linkedin.com/company/tata-power/" target="_blank" rel="noopener noreferrer" class="social-icon-btn linkedin" aria-label="Visit Tata Power on LinkedIn (opens in new tab)" title="LinkedIn Tata Power">
+        <i class="fa-brands fa-linkedin-in" aria-hidden="true"></i>
+      </a>
+      <a href="https://www.youtube.com/channel/UCCz5pvnMkswgbWh5MKMH-vQ" target="_blank" rel="noopener noreferrer" class="social-icon-btn youtube" aria-label="Visit Tata Power on YouTube (opens in new tab)" title="YouTube @TataPowerCompanyLtd">
+        <i class="fa-brands fa-youtube" aria-hidden="true"></i>
+      </a>
+      <a href="https://linktr.ee/Tata_Power_EZ_Charge" target="_blank" rel="noopener noreferrer" class="social-pill" style="font-size:0.78rem;" aria-label="Tata Power EZ Charge Linktree Collection (opens in new tab)">
+        <i class="fa-solid fa-tree" aria-hidden="true"></i> Linktree Directory &nearr;
+      </a>
+    </div>
+
     <div style="margin-top:1.25rem; border-top:1px solid var(--border-color); padding-top:0.85rem;">
       {% for ann in announcements %}
         <div style="margin-bottom:0.75rem;">

@@ -1,21 +1,54 @@
 """
 Stations and Charging Points Service
-EV Charging Station Management System - Optimized Geospatial & NCR Queries
+EV Charging Station Management System - Optimized Geospatial, Provenance & NCR Queries
 """
+import re
+import uuid
 from app.db import query_all, query_one, execute
+from app.services.audit_service import log_audit_event
+
+VALID_STATION_VERIFICATION_STATUSES = (
+    "VERIFIED",
+    "PENDING_VERIFICATION",
+    "PENDING_REVIEW",
+    "HISTORICAL",
+    "DEMO",
+    "ESTIMATED",
+    "UNAVAILABLE",
+    "OUTDATED",
+)
 
 
-def get_all_stations(city=None, status=None, only_approved=True):
+def _slugify(name):
+    """Build URL-safe station slug without exposing database IDs."""
+    base = re.sub(r"[^a-z0-9]+", "-", (name or "station").lower()).strip("-")
+    return base[:140] or f"station-{uuid.uuid4().hex[:6]}"
+
+
+def get_all_stations(
+    city=None,
+    status=None,
+    operator=None,
+    connector=None,
+    min_power=None,
+    max_power=None,
+    only_approved=True,
+    **kwargs,
+):
     """
-    Retrieve stations with optional city, operational status, and approval filtering.
-    Uses aggregated joins to avoid N+1 queries and surfaces geospatial/operator metadata.
+    Retrieve stations with optional city, operational status, operator, connector,
+    capacity bounds, and approval filtering.
+    Uses aggregated joins to avoid N+1 queries and surfaces geospatial/operator/provenance metadata.
     """
     sql = (
-        "SELECT s.station_id, s.station_name, s.address, s.city, s.state, s.postal_code, "
+        "SELECT s.station_id, s.station_name, s.station_slug, s.address, s.locality, "
+        "       s.city, s.state, s.postal_code, s.country, "
         "       s.latitude, s.longitude, s.google_place_id, s.maps_url, "
-        "       s.operator_name, s.connector_types, s.charger_capacity_kw, s.contact_info, "
-        "       s.opening_time, s.closing_time, s.station_status, "
-        "       s.verification_status, s.approval_status, s.source_url, s.last_verified_at, s.created_at, "
+        "       s.operator_name, s.connector_types, s.charger_capacity_kw, s.charger_type, s.gun_count, "
+        "       s.contact_info, s.opening_time, s.closing_time, s.station_status, "
+        "       s.verification_status, s.approval_status, s.source_url, s.source_type, s.source_name, "
+        "       s.published_at, s.retrieved_at, s.last_verified_at, s.confidence_level, s.record_origin, "
+        "       s.is_demo, s.created_at, "
         "       COUNT(cp.point_id) AS total_points, "
         "       COALESCE(SUM(CASE WHEN cp.point_status = 'AVAILABLE' THEN 1 ELSE 0 END), 0) AS available_points, "
         "       COALESCE(SUM(CASE WHEN cp.point_status = 'OCCUPIED' THEN 1 ELSE 0 END), 0) AS occupied_points, "
@@ -29,20 +62,49 @@ def get_all_stations(city=None, status=None, only_approved=True):
     params = []
     if only_approved:
         sql += " AND s.approval_status = 'APPROVED'"
-    if city:
+    if city and str(city).strip():
         sql += " AND s.city = %s"
-        params.append(city)
-    if status:
+        params.append(str(city).strip())
+    if status and str(status).strip():
         sql += " AND s.station_status = %s"
-        params.append(status)
+        params.append(str(status).strip())
+    if operator and str(operator).strip():
+        sql += " AND s.operator_name = %s"
+        params.append(str(operator).strip())
+    if connector and str(connector).strip():
+        conn_str = str(connector).strip().upper()
+        sql += " AND (s.connector_types LIKE %s OR cp.connector_type = %s)"
+        params.extend([f"%{conn_str}%", conn_str])
+    if min_power is not None and str(min_power).strip():
+        try:
+            min_p = float(min_power)
+            sql += " AND (s.charger_capacity_kw >= %s OR cp.max_power_kw >= %s)"
+            params.extend([min_p, min_p])
+        except (ValueError, TypeError):
+            pass
+    if max_power is not None and str(max_power).strip():
+        try:
+            max_p = float(max_power)
+            sql += " AND (s.charger_capacity_kw <= %s OR cp.max_power_kw <= %s)"
+            params.extend([max_p, max_p])
+        except (ValueError, TypeError):
+            pass
+    search_term = kwargs.get("search") or kwargs.get("q")
+    if search_term and str(search_term).strip():
+        term = f"%{str(search_term).strip()}%"
+        sql += " AND (s.station_name LIKE %s OR s.address LIKE %s OR s.locality LIKE %s OR s.city LIKE %s)"
+        params.extend([term, term, term, term])
 
     sql += (
-        " GROUP BY s.station_id, s.station_name, s.address, s.city, s.state, s.postal_code, "
+        " GROUP BY s.station_id, s.station_name, s.station_slug, s.address, s.locality, "
+        "          s.city, s.state, s.postal_code, s.country, "
         "          s.latitude, s.longitude, s.google_place_id, s.maps_url, "
-        "          s.operator_name, s.connector_types, s.charger_capacity_kw, s.contact_info, "
-        "          s.opening_time, s.closing_time, s.station_status, "
-        "          s.verification_status, s.approval_status, s.source_url, s.last_verified_at, s.created_at "
-        " ORDER BY s.city, s.station_name"
+        "          s.operator_name, s.connector_types, s.charger_capacity_kw, s.charger_type, s.gun_count, "
+        "          s.contact_info, s.opening_time, s.closing_time, s.station_status, "
+        "          s.verification_status, s.approval_status, s.source_url, s.source_type, s.source_name, "
+        "          s.published_at, s.retrieved_at, s.last_verified_at, s.confidence_level, s.record_origin, "
+        "          s.is_demo, s.created_at "
+        " ORDER BY (s.latitude IS NULL), s.city, s.station_name"
     )
     stations = query_all(sql, params)
 
@@ -57,44 +119,91 @@ def get_all_stations(city=None, status=None, only_approved=True):
         s["available_points"] = int(s["available_points"] or 0)
         s["occupied_points"] = int(s["occupied_points"] or 0)
         s["peak_power_kw"] = float(s["peak_power_kw"] or 0)
+        s["status"] = s.get("station_status")
         s["facilities_list"] = [f.strip() for f in (s.get("facilities_csv") or "").split(",") if f.strip()]
 
     return stations
 
 
+def _hydrate_station(station):
+    """Attach normalized strings, coordinates, points, and facilities onto a single station dict."""
+    if not station:
+        return None
+    if station.get("opening_time") is not None:
+        station["opening_time"] = str(station["opening_time"])
+    if station.get("closing_time") is not None:
+        station["closing_time"] = str(station["closing_time"])
+    station["latitude"] = float(station["latitude"]) if station.get("latitude") is not None else None
+    station["longitude"] = float(station["longitude"]) if station.get("longitude") is not None else None
+    station["points"] = query_all(
+        "SELECT point_id, station_id, point_code, connector_type, max_power_kw, "
+        "       tariff_per_kwh, point_status, created_at "
+        "FROM ChargingPoints WHERE station_id = %s ORDER BY point_code",
+        (station["station_id"],)
+    )
+    facs = query_all(
+        "SELECT facility_name FROM StationFacilities WHERE station_id = %s ORDER BY facility_name",
+        (station["station_id"],)
+    )
+    station["facilities_list"] = [f["facility_name"] for f in facs]
+    return station
+
+
 def get_station_by_id(station_id, only_approved=True):
-    """Retrieve single station with its charging points and facilities."""
+    """Retrieve single station with its charging points, provenance metadata, and facilities."""
     sql = (
-        "SELECT station_id, station_name, address, city, state, postal_code, "
+        "SELECT station_id, station_name, station_slug, address, locality, city, state, postal_code, country, "
         "       latitude, longitude, google_place_id, maps_url, "
-        "       operator_name, connector_types, charger_capacity_kw, contact_info, "
+        "       operator_name, connector_types, charger_capacity_kw, charger_type, gun_count, contact_info, "
         "       opening_time, closing_time, station_status, "
-        "       verification_status, approval_status, source_url, last_verified_at, created_at "
+        "       verification_status, approval_status, source_url, source_type, source_name, "
+        "       published_at, retrieved_at, last_verified_at, confidence_level, record_origin, is_demo, created_at "
         "FROM Stations WHERE station_id = %s"
     )
     if only_approved:
         sql += " AND approval_status = 'APPROVED'"
-    station = query_one(sql, (station_id,))
-    if station:
-        if station.get("opening_time") is not None:
-            station["opening_time"] = str(station["opening_time"])
-        if station.get("closing_time") is not None:
-            station["closing_time"] = str(station["closing_time"])
-        station["latitude"] = float(station["latitude"]) if station.get("latitude") is not None else None
-        station["longitude"] = float(station["longitude"]) if station.get("longitude") is not None else None
+    return _hydrate_station(query_one(sql, (station_id,)))
 
-        station["points"] = query_all(
-            "SELECT point_id, station_id, point_code, connector_type, max_power_kw, "
-            "       tariff_per_kwh, point_status, created_at "
-            "FROM ChargingPoints WHERE station_id = %s ORDER BY point_code",
-            (station_id,)
-        )
-        facs = query_all(
-            "SELECT facility_name FROM StationFacilities WHERE station_id = %s ORDER BY facility_name",
-            (station_id,)
-        )
-        station["facilities_list"] = [f["facility_name"] for f in facs]
-    return station
+
+def get_station_by_slug(slug, only_approved=True):
+    """Retrieve single station cleanly via its public URL slug."""
+    sql = (
+        "SELECT station_id, station_name, station_slug, address, locality, city, state, postal_code, country, "
+        "       latitude, longitude, google_place_id, maps_url, "
+        "       operator_name, connector_types, charger_capacity_kw, charger_type, gun_count, contact_info, "
+        "       opening_time, closing_time, station_status, "
+        "       verification_status, approval_status, source_url, source_type, source_name, "
+        "       published_at, retrieved_at, last_verified_at, confidence_level, record_origin, is_demo, created_at "
+        "FROM Stations WHERE station_slug = %s"
+    )
+    if only_approved:
+        sql += " AND approval_status = 'APPROVED'"
+    return _hydrate_station(query_one(sql, (slug.strip(),)))
+
+
+def verify_station_record(station_id, new_status, admin_user_id):
+    """Admin action: transition station verification_status (VERIFIED / HISTORICAL / OUTDATED / PENDING_VERIFICATION) with audit log."""
+    norm = (new_status or "").strip().upper()
+    if norm not in VALID_STATION_VERIFICATION_STATUSES:
+        return False, f"Invalid verification status '{new_status}'."
+    row = query_one("SELECT station_id, station_name, verification_status, latitude, longitude FROM Stations WHERE station_id = %s", (station_id,))
+    if not row:
+        return False, "Station not found."
+    if norm == "VERIFIED" and (row.get("latitude") is None or row.get("longitude") is None):
+        return False, "Cannot mark VERIFIED without grounded latitude and longitude coordinates."
+
+    execute(
+        "UPDATE Stations SET verification_status = %s, last_verified_at = NOW() WHERE station_id = %s",
+        (norm, station_id),
+    )
+    log_audit_event(
+        action="STATION_VERIFICATION_UPDATED",
+        entity_name="Stations",
+        entity_id=station_id,
+        user_id=admin_user_id,
+        details=f"Station '{row['station_name']}' verification_status changed from {row['verification_status']} to {norm}",
+    )
+    return True, f"{row['station_name']} marked as {norm}."
 
 
 def create_station(
@@ -120,14 +229,19 @@ def create_station(
     if latitude is not None and longitude is not None and not maps_url:
         maps_url = f"https://www.google.com/maps/search/?api=1&query={float(latitude):.6f},{float(longitude):.6f}"
 
+    slug = _slugify(station_name)
+    if query_one("SELECT station_id FROM Stations WHERE station_slug = %s", (slug,)):
+        slug = f"{slug[:130]}-{uuid.uuid4().hex[:5]}"
+
     return execute(
         "INSERT INTO Stations ("
-        "  station_name, address, city, state, postal_code, latitude, longitude, maps_url, "
+        "  station_name, station_slug, address, city, state, postal_code, latitude, longitude, maps_url, "
         "  operator_name, connector_types, charger_capacity_kw, opening_time, closing_time, "
         "  station_status, verification_status, approval_status, source_url, last_verified_at"
-        ") VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())",
+        ") VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())",
         (
             station_name.strip(),
+            slug,
             address.strip(),
             city.strip(),
             (state or "Delhi NCR").strip(),
