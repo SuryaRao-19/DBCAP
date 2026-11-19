@@ -516,3 +516,10 @@ def api_toggle_saved_station(station_id):
     saved, msg = toggle_saved_station(user_id, station_id)
     return jsonify({"success": True, "saved": saved, "message": msg}), 200
 
+
+@api_bp.route("/supabase/config", methods=["GET"])
+def api_supabase_config():
+    """Retrieve sanitized Supabase client configuration for frontend initialization."""
+    from app.services.supabase_service import get_supabase_public_config
+    return jsonify({"success": True, "data": get_supabase_public_config()}), 200
+

@@ -154,6 +154,8 @@ def create_app(test_config=None):
     app.register_blueprint(owner_bp, url_prefix="/owner")
     app.register_blueprint(api_bp, url_prefix="/api")
 
+    from app.services.supabase_service import get_supabase_public_config
+
     @app.context_processor
     def inject_platform_identity():
         return {
@@ -161,6 +163,7 @@ def create_app(test_config=None):
             "social_links": get_verified_social_links(),
             "google_maps_api_key": app.config.get("GOOGLE_MAPS_API_KEY", ""),
             "google_oauth_enabled": is_google_oauth_configured(app),
+            "supabase_config": get_supabase_public_config(app),
         }
 
     # Global Error Handlers
