@@ -217,10 +217,12 @@ def vehicles():
     return render_template("customer/vehicles.html", vehicles=user_vehicles)
 
 
-@customer_bp.route("/vehicles/add", methods=["POST"])
+@customer_bp.route("/vehicles/add", methods=["GET", "POST"])
 @login_required
 @role_required("CUSTOMER")
 def vehicle_add():
+    if request.method == "GET":
+        return redirect(url_for("customer.vehicles"))
     uid = get_current_user_id()
     reg = request.form.get("registration_no", "").strip().upper()
     make = request.form.get("make", "").strip()
@@ -249,10 +251,12 @@ def vehicle_add():
     return redirect(url_for("customer.vehicles"))
 
 
-@customer_bp.route("/vehicles/<int:vehicle_id>/edit", methods=["POST"])
+@customer_bp.route("/vehicles/<int:vehicle_id>/edit", methods=["GET", "POST"])
 @login_required
 @role_required("CUSTOMER")
 def vehicle_edit(vehicle_id):
+    if request.method == "GET":
+        return redirect(url_for("customer.vehicles"))
     uid = get_current_user_id()
     reg = request.form.get("registration_no", "").strip().upper()
     make = request.form.get("make", "").strip()
@@ -282,10 +286,12 @@ def vehicle_edit(vehicle_id):
     return redirect(url_for("customer.vehicles"))
 
 
-@customer_bp.route("/vehicles/<int:vehicle_id>/delete", methods=["POST"])
+@customer_bp.route("/vehicles/<int:vehicle_id>/delete", methods=["GET", "POST"])
 @login_required
 @role_required("CUSTOMER")
 def vehicle_delete(vehicle_id):
+    if request.method == "GET":
+        return redirect(url_for("customer.vehicles"))
     uid = get_current_user_id()
     ok, err = delete_vehicle(vehicle_id, uid)
     if not ok:
@@ -295,10 +301,12 @@ def vehicle_delete(vehicle_id):
     return redirect(url_for("customer.vehicles"))
 
 
-@customer_bp.route("/vehicles/<int:vehicle_id>/set-default", methods=["POST"])
+@customer_bp.route("/vehicles/<int:vehicle_id>/set-default", methods=["GET", "POST"])
 @login_required
 @role_required("CUSTOMER")
 def vehicle_set_default(vehicle_id):
+    if request.method == "GET":
+        return redirect(url_for("customer.vehicles"))
     uid = get_current_user_id()
     ok, err = set_default_vehicle(uid, vehicle_id)
     if not ok:
@@ -415,10 +423,12 @@ def book_slot(point_id):
     )
 
 
-@customer_bp.route("/bookings/<int:booking_id>/cancel", methods=["POST"])
+@customer_bp.route("/bookings/<int:booking_id>/cancel", methods=["GET", "POST"])
 @login_required
 @role_required("CUSTOMER")
 def booking_cancel(booking_id):
+    if request.method == "GET":
+        return redirect(url_for("customer.bookings"))
     uid = get_current_user_id()
     ok, err = cancel_booking(booking_id, uid)
     if not ok:
@@ -469,10 +479,12 @@ def charging():
     )
 
 
-@customer_bp.route("/charging/start", methods=["POST"])
+@customer_bp.route("/charging/start", methods=["GET", "POST"])
 @login_required
 @role_required("CUSTOMER")
 def charging_start():
+    if request.method == "GET":
+        return redirect(url_for("customer.charging"))
     uid = get_current_user_id()
     existing = get_active_session_for_user(uid)
     if existing:
@@ -481,13 +493,13 @@ def charging_start():
 
     vehicle_id = request.form.get("vehicle_id")
     point_id = request.form.get("point_id")
-    initial_soc = float(request.form.get("initial_soc", 20.0))
+    booking_id = request.form.get("booking_id")
 
     if not vehicle_id or not point_id:
         flash("Please select both a vehicle and an available charging dispenser.", "danger")
         return redirect(url_for("customer.charging"))
 
-    sid, err = start_session(uid, vehicle_id, point_id, initial_soc)
+    sid, err = start_session(uid, vehicle_id, point_id, booking_id=booking_id)
     if err:
         flash(err, "danger")
     else:
@@ -495,15 +507,17 @@ def charging_start():
     return redirect(url_for("customer.charging"))
 
 
-@customer_bp.route("/charging/stop/<int:session_id>", methods=["POST"])
+@customer_bp.route("/charging/stop/<int:session_id>", methods=["GET", "POST"])
 @login_required
 @role_required("CUSTOMER")
 def charging_stop(session_id):
+    if request.method == "GET":
+        return redirect(url_for("customer.charging"))
     uid = get_current_user_id()
     final_soc = float(request.form.get("final_soc", 80.0))
     energy_kwh = float(request.form.get("energy_consumed_kwh", 15.5))
 
-    ok, err = complete_session(session_id, uid, final_soc, energy_kwh)
+    ok, err = complete_session(session_id, energy_kwh=energy_kwh, user_id=uid)
     if not ok:
         flash(err, "danger")
         return redirect(url_for("customer.charging"))
@@ -616,11 +630,13 @@ def payments():
     )
 
 
-@customer_bp.route("/reserve-and-pay", methods=["POST"])
+@customer_bp.route("/reserve-and-pay", methods=["GET", "POST"])
 @login_required
 @role_required("CUSTOMER")
 def reserve_and_pay():
     """Process 5-step customer booking submission: supports Online (Razorpay) and Offline (Cash at Station)."""
+    if request.method == "GET":
+        return redirect(url_for("customer.payments", tab="reserve"))
     import uuid
     uid = get_current_user_id()
     point_id = request.form.get("point_id", type=int)

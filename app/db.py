@@ -165,6 +165,13 @@ def _get_sqlite_connection():
         con = sqlite3.connect(live_db_path, check_same_thread=False)
         con.row_factory = sqlite3.Row
 
+        try:
+            sqlite3.register_adapter(datetime, lambda dt: dt.strftime("%Y-%m-%d %H:%M:%S"))
+            from datetime import date
+            sqlite3.register_adapter(date, lambda d: d.strftime("%Y-%m-%d"))
+        except Exception:
+            pass
+
         # Register MySQL compatibility functions
         con.create_function("NOW", 0, lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         con.create_function("CURDATE", 0, lambda: datetime.now().strftime("%Y-%m-%d"))
@@ -233,6 +240,63 @@ def _convert_sqlite_row(row_dict):
                 pass
         out[k] = v
     return out
+
+
+class _SQLiteCursorAdapter:
+    """
+    Transparent proxy for sqlite3.Cursor that emulates PyMySQL DictCursor.
+    Translates MySQL queries (%s, FOR UPDATE, NOW, etc.) using _adapt_sql_for_sqlite,
+    and returns dicts from fetchone/fetchall.
+    """
+    def __init__(self, raw_cursor):
+        self._raw = raw_cursor
+
+    def execute(self, sql, params=None):
+        adapted = _adapt_sql_for_sqlite(sql)
+        return self._raw.execute(adapted, params or ())
+
+    def executemany(self, sql, seq_of_params):
+        adapted = _adapt_sql_for_sqlite(sql)
+        return self._raw.executemany(adapted, seq_of_params)
+
+    def fetchone(self):
+        row = self._raw.fetchone()
+        if row is None:
+            return None
+        return _convert_sqlite_row(dict(row))
+
+    def fetchall(self):
+        rows = self._raw.fetchall()
+        return [_convert_sqlite_row(dict(r)) for r in rows]
+
+    def fetchmany(self, size=None):
+        rows = self._raw.fetchmany(size) if size is not None else self._raw.fetchmany()
+        return [_convert_sqlite_row(dict(r)) for r in rows]
+
+    @property
+    def lastrowid(self):
+        return self._raw.lastrowid
+
+    @property
+    def rowcount(self):
+        return self._raw.rowcount
+
+    @property
+    def description(self):
+        return self._raw.description
+
+    def close(self):
+        return self._raw.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+    def __iter__(self):
+        for r in self._raw:
+            yield _convert_sqlite_row(dict(r))
 
 
 def _sqlite_query_all(sql, params=None):
@@ -400,7 +464,7 @@ def transaction():
     if _should_use_sqlite():
         con = _get_sqlite_connection()
         with _SQLITE_LOCK:
-            cur = con.cursor()
+            cur = _SQLiteCursorAdapter(con.cursor())
             try:
                 yield cur
                 con.commit()
@@ -417,7 +481,7 @@ def transaction():
             _MYSQL_UNAVAILABLE = True
             con = _get_sqlite_connection()
             with _SQLITE_LOCK:
-                cur = con.cursor()
+                cur = _SQLiteCursorAdapter(con.cursor())
                 try:
                     yield cur
                     con.commit()
