@@ -167,6 +167,7 @@ def register():
     return render_template("register.html")
 
 
+@auth_bp.route("/auth/google", methods=["GET"])
 @auth_bp.route("/auth/google/login", methods=["GET"])
 def google_login():
     """Initiate Google OAuth 2.0 / OpenID Connect Authorization Code flow."""
